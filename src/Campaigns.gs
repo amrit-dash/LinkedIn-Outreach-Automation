@@ -248,3 +248,253 @@ function sendConnectionRequests(campaignIdToUse) {
     }
     
     if (activeCampaigns.length === 1) {
+      selectedCampaignId = activeCampaigns[0][0];
+      connectionNote = activeCampaigns[0][4]; 
+    } else {
+      const campaignListStr = activeCampaigns.map((item, i) => `${i+1}. ${item[1]} (ID: ${item[0]})`).join('\n');
+      const campResp = ui.prompt("Select Campaign", `Enter the number (1-${activeCampaigns.length}) of the active campaign to process:\n\n${campaignListStr}`, ui.ButtonSet.OK_CANCEL);
+      if (campResp.getSelectedButton() !== ui.Button.OK) return;
+      
+      const selectedListIndex = parseInt(campResp.getResponseText()) - 1;
+      if (isNaN(selectedListIndex) || selectedListIndex < 0 || selectedListIndex >= activeCampaigns.length) {
+        ui.alert("Invalid selection.");
+        return;
+      }
+      selectedCampaignId = activeCampaigns[selectedListIndex][0];
+      connectionNote = activeCampaigns[selectedListIndex][4];
+    }
+  } else {
+    const campaignsData = campaignsSheet.getRange(2, 1, campaignsSheet.getLastRow() - 1, campaignsSheet.getLastColumn()).getValues();
+    const campRow = campaignsData.find(row => row[0] === selectedCampaignId);
+    if (campRow) {
+      connectionNote = campRow[4];
+    }
+  }
+
+  const accountsSheet = ss.getSheetByName("Accounts");
+  const lastAccRow = accountsSheet.getLastRow();
+  if (lastAccRow < 2) {
+    ui.alert("No accounts found. Sync accounts first.");
+    return;
+  }
+  
+  const allAccountsDataRange = accountsSheet.getRange(2, 1, lastAccRow - 1, accountsSheet.getLastColumn());
+  const allAccountsData = allAccountsDataRange.getValues();
+  
+  let accountsMap = {};
+  allAccountsData.forEach((row, i) => {
+    const st = String(row[4]).toLowerCase().trim();
+    if (st === "active" || st === "ok") {
+      accountsMap[row[1]] = {
+        arrayIndex: i, // index in allAccountsData
+        sentToday: parseInt(row[5]) || 0,
+        dailyLimit: parseInt(row[6]) || 100,
+        currentErrorCount: parseInt(row[10]) || 0,
+        updated: false
+      };
+    }
+  });
+
+  if (Object.keys(accountsMap).length === 0) {
+    ui.alert("No active accounts found. Please ensure your accounts are active and try syncing again.");
+    return;
+  }
+
+  let creds;
+  try {
+    creds = getCredentials();
+  } catch (e) {
+    ui.alert(`Error reading credentials: ${e.message}`);
+    return;
+  }
+  
+  const apiUrl = `${creds.baseUrl}/users/invite`;
+  
+  const invSheet = ss.getSheetByName("Invitations");
+  const existingInvitations = new Set();
+  if (invSheet) {
+    const lastInvRow = invSheet.getLastRow();
+    if (lastInvRow >= 2) {
+      const invData = invSheet.getRange(2, 1, lastInvRow - 1, 3).getValues();
+      invData.forEach(row => {
+        if (row[2]) existingInvitations.add(String(row[2]));
+        if (row[0] && row[1]) existingInvitations.add(row[0] + "_" + row[1]);
+      });
+    }
+  }
+  
+  const lastDbRow = dbSheet.getLastRow();
+  if (lastDbRow < 2) {
+    ui.alert("Database is empty.");
+    return;
+  }
+  
+  const lastDbCol = Math.max(26, dbSheet.getLastColumn());
+  const dbRange = dbSheet.getRange(2, 1, lastDbRow - 1, lastDbCol);
+  const dbData = dbRange.getValues();
+  
+  let sentCount = 0;
+  let skippedCount = 0;
+  let skippedInactiveAccountCount = 0;
+  let errorCount = 0;
+  let autoCorrectedCount = 0;
+  let processedInBatch = 0;
+  const BATCH_SIZE = 10;
+  
+  for (let i = 0; i < dbData.length; i++) {
+    const row = dbData[i];
+    const campId = row[0];
+    const sendingAccountId = row[10];
+    const providerId = row[11]; 
+    const status = row[12]; 
+    
+    if (campId === selectedCampaignId && status === "Pending") {
+      const acc = accountsMap[sendingAccountId];
+      
+      if (!acc) {
+        skippedInactiveAccountCount++;
+        continue;
+      }
+      
+      if (acc.sentToday >= acc.dailyLimit) {
+        row[12] = "Pending"; // Leave as pending so it can be picked up the next day
+        row[25] = `[${new Date().toISOString()}] Daily limit reached (${acc.dailyLimit}). Will retry tomorrow.`;
+        errorCount++;
+        processedInBatch++;
+        
+        if (processedInBatch > 0 && processedInBatch % BATCH_SIZE === 0) {
+          // Instead of dbRange.setValues(dbData), update specific cells
+          dbSheet.getRange(i + 2, 13).setValue("Pending");
+          dbSheet.getRange(i + 2, 26).setValue(row[25]);
+          Object.keys(accountsMap).forEach(id => {
+            let act = accountsMap[id];
+            if (act.updated) {
+              allAccountsData[act.arrayIndex][5] = act.sentToday;
+              allAccountsData[act.arrayIndex][10] = act.currentErrorCount;
+              act.updated = false;
+            }
+          });
+          allAccountsDataRange.setValues(allAccountsData);
+          SpreadsheetApp.flush();
+        }
+        continue;
+      }
+      
+      if (!providerId) {
+        skippedCount++;
+        continue;
+      }
+      
+      const payload = {
+        provider_id: providerId,
+        account_id: sendingAccountId
+      };
+      
+      if (connectionNote && connectionNote.trim() !== "") {
+        const firstName = String(row[3] || "").trim();
+        payload.message = String(connectionNote).replace(/\$name/g, firstName);
+      }
+      
+      const options = {
+        "method": "POST",
+        "headers": {
+          "X-API-KEY": creds.apiKey,
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "payload": JSON.stringify(payload),
+        "muteHttpExceptions": true
+      };
+      
+      try {
+        const response = fetchWithRetry(apiUrl, options);
+        if (response.getResponseCode() === 201 || response.getResponseCode() === 200) {
+          const respData = JSON.parse(response.getContentText());
+          const invitationId = respData.id || respData.invitation_id || "";
+
+          row[12] = "Sent";
+          row[13] = new Date(); 
+          row[25] = ""; // clear any previous error
+          
+          if (invitationId) {
+             if (invSheet && !existingInvitations.has(String(invitationId)) && !existingInvitations.has(sendingAccountId + "_" + providerId)) {
+               invSheet.appendRow([sendingAccountId, providerId, invitationId, "Sent", new Date()]);
+               existingInvitations.add(String(invitationId));
+               existingInvitations.add(sendingAccountId + "_" + providerId);
+             }
+          }
+
+          acc.sentToday++;
+          acc.updated = true;
+          sentCount++;
+          processedInBatch++;
+          
+          Utilities.sleep(500); 
+        } else {
+          const respText = response.getContentText();
+          let isAlreadyConnected = false;
+          let isInvitationAlreadySent = false;
+          let extractedError = "";
+          
+          try {
+            const errJson = JSON.parse(respText);
+            const errType = String(errJson.type || "").toLowerCase();
+            const errDetail = String(errJson.detail || "").toLowerCase();
+            
+            extractedError = errJson.detail || errJson.message || errJson.error || respText.substring(0, 200);
+            
+            if (errType.includes("already_connected") || errType.includes("is_connection") || errDetail.includes("already connected") || errDetail.includes("already a connection")) {
+              isAlreadyConnected = true;
+            } else if (errType.includes("invitation_already_sent") || errDetail.includes("invitation already been sent") || errDetail.includes("invitation has already been sent")) {
+              isInvitationAlreadySent = true;
+            }
+          } catch(e) {
+            extractedError = respText.substring(0, 200);
+          }
+          
+          if (isAlreadyConnected) {
+             row[12] = "Accepted"; 
+             row[14] = true; 
+             row[15] = new Date(); 
+             row[25] = `[${new Date().toISOString()}] Auto-corrected: Already a connection. Moved to Accepted status.`;
+             autoCorrectedCount++;
+             processedInBatch++;
+          } else if (isInvitationAlreadySent) {
+             const profileUrl = `${creds.baseUrl}/users/${providerId}?account_id=${sendingAccountId}`;
+             const profileOptions = {
+               "method": "GET",
+               "headers": {
+                 "X-API-KEY": creds.apiKey,
+                 "Accept": "application/json"
+               },
+               "muteHttpExceptions": true
+             };
+             
+             let connectedAt = null;
+             try {
+               const profileResp = fetchWithRetry(profileUrl, profileOptions);
+               if (profileResp.getResponseCode() === 200) {
+                 const profileData = JSON.parse(profileResp.getContentText());
+                 if (profileData.connected_at) {
+                   connectedAt = profileData.connected_at;
+                 }
+               }
+             } catch(e) {}
+             
+             row[12] = "Sent";
+             row[13] = new Date(); // Treat as sent right now to move it out of pending
+             
+             if (connectedAt) {
+               row[14] = true;
+               row[15] = new Date(connectedAt); 
+               row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent and is now connected.`;
+             } else {
+               // We need to find the missing invitation_id so we can uninvite later if needed
+               const foundInvId = findInvitationId(creds, sendingAccountId, providerId);
+               if (foundInvId) {
+                 if (invSheet && !existingInvitations.has(String(foundInvId)) && !existingInvitations.has(sendingAccountId + "_" + providerId)) {
+                   invSheet.appendRow([sendingAccountId, providerId, foundInvId, "Sent", new Date()]);
+                   existingInvitations.add(String(foundInvId));
+                   existingInvitations.add(sendingAccountId + "_" + providerId);
+                 }
+                 row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent. Found ID ${foundInvId}`;
