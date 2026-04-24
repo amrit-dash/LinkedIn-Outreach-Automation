@@ -531,13 +531,15 @@ function sendConnectionRequests(campaignIdToUse) {
                row[15] = connectedAt ? new Date(connectedAt) : new Date(); 
                row[25] = `[${new Date().toISOString()}] Auto-corrected: Already a connection. Moved to Accepted status.`;
              } else {
-               row[12] = "Sent";
-               row[13] = new Date(); // Treat as sent right now to move it out of pending
                if (connectedAt) {
+                 row[12] = "Accepted";
+                 row[13] = new Date(); // Treat as sent right now to move it out of pending
                  row[14] = true;
                  row[15] = new Date(connectedAt); 
                  row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent and is now connected.`;
                } else {
+                 row[12] = "Sent";
+                 row[13] = new Date(); // Treat as sent right now to move it out of pending
                  // We need to find the missing invitation_id so we can uninvite later if needed
                  const foundInvId = findInvitationId(creds, sendingAccountId, providerId);
                  if (foundInvId) {

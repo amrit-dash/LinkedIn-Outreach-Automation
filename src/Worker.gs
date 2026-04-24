@@ -533,9 +533,14 @@ function syncInvitationStatuses() {
       const accountId = dbData[i][10];
       const providerId = dbData[i][11];
       const status = dbData[i][12];
+      const isAccepted = dbData[i][14];
       
       if (accountId && providerId) {
-        dbStatusMap[`${accountId}_${providerId}`] = status;
+        if (isAccepted === true || String(isAccepted).toUpperCase() === "TRUE") {
+          dbStatusMap[`${accountId}_${providerId}`] = "Accepted";
+        } else {
+          dbStatusMap[`${accountId}_${providerId}`] = status;
+        }
       }
     }
     
