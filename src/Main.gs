@@ -46,8 +46,11 @@ function onEdit(e) {
 
 function startMonitoringProcess() {
   const ui = SpreadsheetApp.getUi();
-  const props = PropertiesService.getDocumentProperties();
-  props.setProperty('WEBHOOK_MONITORING_ENABLED', 'TRUE');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const credSheet = ss.getSheetByName("Credentials");
+  if (credSheet) {
+    credSheet.getRange(4, 2).setValue("ENABLED");
+  }
   
   ui.alert(
     'Monitoring Enabled',
@@ -58,8 +61,11 @@ function startMonitoringProcess() {
 
 function stopMonitoringProcess() {
   const ui = SpreadsheetApp.getUi();
-  const props = PropertiesService.getDocumentProperties();
-  props.setProperty('WEBHOOK_MONITORING_ENABLED', 'FALSE');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const credSheet = ss.getSheetByName("Credentials");
+  if (credSheet) {
+    credSheet.getRange(4, 2).setValue("DISABLED");
+  }
   
   ui.alert(
     'Monitoring Disabled',

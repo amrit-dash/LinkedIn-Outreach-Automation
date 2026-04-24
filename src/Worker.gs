@@ -320,6 +320,15 @@ function updateGlobalStats() {
   const dbSheet = ss.getSheetByName("Database");
   const campaignsSheet = ss.getSheetByName("Campaigns");
   const accountsSheet = ss.getSheetByName("Accounts");
+  const credSheet = ss.getSheetByName("Credentials");
+
+  if (credSheet) {
+    let statusValue = credSheet.getRange(4, 2).getValue();
+    if (!statusValue || (String(statusValue).toUpperCase() !== 'ENABLED' && String(statusValue).toUpperCase() !== 'DISABLED')) {
+      credSheet.getRange(4, 1).setValue("appsscript_webhook_status");
+      credSheet.getRange(4, 2).setValue("DISABLED");
+    }
+  }
 
   if (!dbSheet || !campaignsSheet || !accountsSheet) return;
 
