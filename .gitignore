@@ -1,0 +1,23 @@
+# Ignore Excel files
+*.xlsx
+*.xls
+*.csv
+
+# Google Apps Script specific
+.clasp.json
+
+# Node/Python stuff just in case
+node_modules/
+venv/
+.env
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+project-plan.md
