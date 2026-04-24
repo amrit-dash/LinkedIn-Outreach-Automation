@@ -88,8 +88,14 @@ function stopMonitoringProcess() {
   const credSheet = ss.getSheetByName("Credentials");
 
   if (credSheet) {
-    credSheet.getRange(5, 1).setValue("n8n_webhook_status");
-    credSheet.getRange(5, 2).setValue("ENABLED");
+    const n8nStatus = credSheet.getRange(5, 2).getValue();
+    if (String(n8nStatus).trim().toUpperCase() !== 'ENABLED') {
+      const cell = credSheet.getRange(5, 2);
+      credSheet.setActiveRange(cell);
+      cell.setBackground('#FBE6A3');
+      ui.alert('Action Cancelled', 'You must manually set the n8n_webhook_status to ENABLED before stopping Apps Script monitoring.', ui.ButtonSet.OK);
+      return;
+    }
     credSheet.getRange(5, 2).setBackground(null);
   }
 
@@ -103,7 +109,7 @@ function stopMonitoringProcess() {
   
   ui.alert(
     'Monitoring Disabled',
-    'Apps Script Webhook Monitoring is now DISABLED.\n\nIMPORTANT: Please ensure you re-enable your n8n webhook scenario if you want n8n to continue handling replies and new relations.',
+    'Apps Script Webhook Monitoring is now DISABLED.\n\nIMPORTANT: Please ensure your n8n webhook scenario is active if you want n8n to continue handling replies and new relations.',
     ui.ButtonSet.OK
   );
 }
