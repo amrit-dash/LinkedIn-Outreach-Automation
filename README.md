@@ -44,6 +44,9 @@ Whether you are running multi-account outreach campaigns or simple networking au
 - 📊 **Real-time CRM Analytics:** Tracks sent requests, accepted connections, replied messages, and bounce reasons automatically.
 
 ## 🏗 Architecture & Tech Stack
+
+![System Architecture](https://i.ibb.co/dJcF2197/system-architecture.png)
+
 - **Google Apps Script:** Core backend for processing loops, triggers, and the Google Sheets UI.
 - **Google Sheets:** The database, CRM interface, and dashboard.
 - **Unipile API:** The bridge for LinkedIn actions (invitations, messages, enrichments).
