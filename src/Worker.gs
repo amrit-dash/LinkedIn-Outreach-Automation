@@ -278,6 +278,8 @@ function processCampaignsWorker() {
      }
      
      if (action.type === 'uninvite') {
+        const lowerResp = respText.toLowerCase();
+        const isRateLimit = code === 429 || code >= 500 || lowerResp.includes("limit") || lowerResp.includes("try again") || lowerResp.includes("too many");
         if (code === 200 || code === 204) {
             row[12] = "Failed";
             row[25] = `[${nowStr}] 7 days passed, so it is uninvited.`;
@@ -285,10 +287,10 @@ function processCampaignsWorker() {
             dbSheet.getRange(action.dbIndex + 2, 26).setValue(`[${nowStr}] 7 days passed, so it is uninvited.`);
             if (action.invRowIndex >= 0) invData[action.invRowIndex][3] = "Uninvited";
             invUpdated = true;
-        } else if (code === 429 || code >= 500) {
+        } else if (isRateLimit) {
             Logger.log(`Worker uninvite: Rate limit or server error (${code}). Retrying next run.`);
         } else {
-             if (respText.includes("invalid_invitation_id") || respText.includes("Resource not found")) {
+             if (lowerResp.includes("invalid_invitation_id") || lowerResp.includes("resource not found")) {
                  row[12] = "Failed";
                  row[25] = `[${nowStr}] 7 days passed, uninvite failed (already gone).`;
                  dbSheet.getRange(action.dbIndex + 2, 13).setValue("Failed");
@@ -303,6 +305,8 @@ function processCampaignsWorker() {
      } else if (action.type === 'msg1' || action.type === 'msg2' || action.type === 'msg3') {
         const statusCol = action.type === 'msg1' ? 16 : (action.type === 'msg2' ? 18 : 20);
         const timeCol = action.type === 'msg1' ? 17 : (action.type === 'msg2' ? 19 : 21);
+        const lowerResp = respText.toLowerCase();
+        const isRateLimit = code === 429 || code >= 500 || lowerResp.includes("limit") || lowerResp.includes("try again") || lowerResp.includes("too many");
         
         if (code === 201 || code === 200) {
              row[statusCol] = "Sent";
@@ -312,7 +316,7 @@ function processCampaignsWorker() {
              // Random delay 3 to 7 seconds to prevent flagging and mimic human behavior
              const delayMs = Math.floor(Math.random() * (7000 - 3000 + 1) + 3000);
              Utilities.sleep(delayMs);
-        } else if (code === 429 || code >= 500) {
+        } else if (isRateLimit) {
              Logger.log(`Worker ${action.type}: Rate limit or server error (${code}). Retrying next run.`);
         } else {
              row[statusCol] = "Failed";

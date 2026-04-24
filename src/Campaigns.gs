@@ -558,21 +558,25 @@ function sendConnectionRequests(campaignIdToUse) {
              autoCorrectedCount++;
              processedInBatch++;
           } else {
+             const lowerError = String(extractedError).toLowerCase();
+             const isRateLimit = lowerError.includes("limit") || lowerError.includes("429") || lowerError.includes("try again") || lowerError.includes("too many");
              errorCount++;
              acc.currentErrorCount++;
              acc.updated = true;
              
-             row[12] = "Failed";
+             row[12] = isRateLimit ? "Pending" : "Failed";
              row[25] = `[${new Date().toISOString()}] ${extractedError}`; 
              processedInBatch++;
           }
         }
       } catch (e) {
+        const lowerError = String(e.message).toLowerCase();
+        const isRateLimit = lowerError.includes("limit") || lowerError.includes("429") || lowerError.includes("try again") || lowerError.includes("too many");
         errorCount++;
         acc.currentErrorCount++;
         acc.updated = true;
         
-        row[12] = "Failed";
+        row[12] = isRateLimit ? "Pending" : "Failed";
         row[25] = `[${new Date().toISOString()}] Error: ${e.message}`.substring(0, 500);
         processedInBatch++;
       }
@@ -1110,12 +1114,17 @@ function sendManualMessage(campaignIdToUse, msgNumber) {
           Utilities.sleep(Math.floor(Math.random() * 3000) + 2000);
         } else {
           errorCount++;
-          dbSheet.getRange(i + 2, statusCol).setValue("Failed");
-          dbSheet.getRange(i + 2, 26).setValue(`[${new Date().toISOString()}] MSG${msgNumber} Error: ${response.getContentText()}`.substring(0, 500));
+          const respText = response.getContentText();
+          const lowerError = String(respText).toLowerCase();
+          const isRateLimit = lowerError.includes("limit") || lowerError.includes("429") || lowerError.includes("try again") || lowerError.includes("too many");
+          dbSheet.getRange(i + 2, statusCol).setValue(isRateLimit ? "Pending" : "Failed");
+          dbSheet.getRange(i + 2, 26).setValue(`[${new Date().toISOString()}] MSG${msgNumber} Error: ${respText}`.substring(0, 500));
         }
       } catch (e) {
         errorCount++;
-        dbSheet.getRange(i + 2, statusCol).setValue("Failed");
+        const lowerError = String(e.message).toLowerCase();
+        const isRateLimit = lowerError.includes("limit") || lowerError.includes("429") || lowerError.includes("try again") || lowerError.includes("too many");
+        dbSheet.getRange(i + 2, statusCol).setValue(isRateLimit ? "Pending" : "Failed");
         dbSheet.getRange(i + 2, 26).setValue(`[${new Date().toISOString()}] MSG${msgNumber} Exception: ${e.message}`.substring(0, 500));
       }
     } else {
