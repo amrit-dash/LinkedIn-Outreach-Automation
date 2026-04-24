@@ -698,3 +698,112 @@ function forceCheckRequests() {
   }
   
   const lastDbCol = Math.max(26, dbSheet.getLastColumn());
+  const dbRange = dbSheet.getRange(2, 1, lastDbRow - 1, lastDbCol);
+  const dbData = dbRange.getValues();
+  
+  const indicesToCheck = [];
+  for (let i = 0; i < dbData.length; i++) {
+    const row = dbData[i];
+    // Check pending or sent, if provider id exists, and not accepted
+    if (row[0] === selectedCampaignId && row[11] && row[14] !== true && (row[12] === "Sent" || row[12] === "Pending")) {
+      indicesToCheck.push(i);
+    }
+  }
+  
+  if (indicesToCheck.length === 0) {
+    ui.alert(`No pending/sent prospects found to check for '${selectedCampaignName}'.`);
+    return;
+  }
+  
+  let checkedCount = 0;
+  let updatedConnectedCount = 0;
+  let updatedInvitationCount = 0;
+  const BATCH_SIZE = 40;
+  const startTime = Date.now();
+  
+  for (let b = 0; b < indicesToCheck.length; b += BATCH_SIZE) {
+    if (Date.now() - startTime > 280000) { // Safety limit: approx 4.5 minutes
+       ui.alert(`Nearing 6-minute execution limit. Stopping early.\nProcessed ${checkedCount} out of ${indicesToCheck.length} prospects.`);
+       break;
+    }
+    
+    const batchIndices = indicesToCheck.slice(b, b + BATCH_SIZE);
+    const reqs = [];
+    
+    for (let k = 0; k < batchIndices.length; k++) {
+      const idx = batchIndices[k];
+      const row = dbData[idx];
+      const providerId = row[11];
+      const accountId = row[10];
+      
+      reqs.push({
+        url: `${creds.baseUrl}/users/${providerId}?account_id=${accountId}`,
+        method: "GET",
+        headers: { "X-API-KEY": creds.apiKey, "Accept": "application/json" },
+        muteHttpExceptions: true
+      });
+    }
+    
+    let responses;
+    try {
+      responses = UrlFetchApp.fetchAll(reqs);
+    } catch(e) {
+      Logger.log("Batch fetch failed: " + e.message);
+      continue;
+    }
+    
+    for (let k = 0; k < responses.length; k++) {
+      const idx = batchIndices[k];
+      const row = dbData[idx];
+      const response = responses[k];
+      const code = response.getResponseCode();
+      
+      let connectedAt = null;
+      if (code === 200) {
+         try {
+           const profileData = JSON.parse(response.getContentText());
+           if (profileData.connected_at) connectedAt = profileData.connected_at;
+         } catch(e) {}
+      }
+      
+      checkedCount++;
+      
+      if (connectedAt) {
+        row[12] = "Accepted";
+        row[14] = true;
+        row[15] = new Date(connectedAt); 
+        row[25] = `[${new Date().toISOString()}] Force Check: Confirmed connected.`;
+        updatedConnectedCount++;
+      } else {
+        const connReqStatus = row[12];
+        const sendingAccountId = row[10];
+        const providerId = row[11];
+        
+        // Find invitation id fallback
+        const foundInvId = findInvitationId(creds, sendingAccountId, providerId);
+        if (foundInvId) {
+          if (connReqStatus === "Pending") {
+            row[12] = "Sent";
+            row[13] = new Date();
+          }
+          if (invSheet && !existingInvitations.has(String(foundInvId)) && !existingInvitations.has(sendingAccountId + "_" + providerId)) {
+            invSheet.appendRow([sendingAccountId, providerId, foundInvId, "Sent", new Date()]);
+            existingInvitations.add(String(foundInvId));
+            existingInvitations.add(sendingAccountId + "_" + providerId);
+            updatedInvitationCount++;
+          }
+          row[25] = `[${new Date().toISOString()}] Force Check: Found missing invite ID ${foundInvId}`;
+        }
+      }
+      dbSheet.getRange(idx + 2, 13, 1, 4).setValues([[row[12], row[13] || "", row[14] || false, row[15] || ""]]);
+      dbSheet.getRange(idx + 2, 26).setValue(row[25] || "");
+    }
+    
+    SpreadsheetApp.flush();
+  }
+  
+  // Call updateGlobalStats to sync changes to campaign tab
+  updateGlobalStats();
+  
+  ui.alert(`Force Check Complete for '${selectedCampaignName}'!\n\nProspects Checked: ${checkedCount}\nNewly marked as Connected: ${updatedConnectedCount}\nMissing Invitations Re-linked: ${updatedInvitationCount}`);
+}
