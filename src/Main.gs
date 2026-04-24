@@ -63,3 +63,4 @@ function stopMonitoringProcess() {
     ui.ButtonSet.OK
   );
 }
+// UI Helpers
