@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: Arial, sans-serif; padding: 10px; }
+      .form-group { margin-bottom: 15px; }
+      label { display: block; margin-bottom: 5px; font-weight: bold; }
+      input[type="text"], input[type="number"], textarea {
+        width: 100%; padding: 8px; box-sizing: border-box;
+      }
+      .btn {
+        background-color: #4CAF50; color: white; padding: 10px 15px;
+        border: none; cursor: pointer; width: 100%; font-size: 16px;
+      }
+      .btn:hover { background-color: #45a049; }
+      .spinner { display: none; margin-top: 10px; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <form id="campaignForm" onsubmit="handleFormSubmit(this); return false;">
+      <div class="form-group">
+        <label for="campaignName">Campaign Name:</label>
+        <input type="text" id="campaignName" name="campaignName" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="numProspects">Number of Prospects (or 'All'):</label>
+        <input type="text" id="numProspects" name="numProspects" value="All" required>
+      </div>
+
+      <div class="form-group">
+        <label for="connectionNote">Connection Note (leave blank for none):</label>
+        <span style="font-size: 12px; color: #666;">Note: You can use $name to insert the prospect's first name.</span>
+        <textarea id="connectionNote" name="connectionNote" rows="3"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="msg1">Message 1 (after connection acceptance):</label>
+        <span style="font-size: 12px; color: #666;">Note: You can use $name to insert the prospect's first name.</span>
+        <textarea id="msg1" name="msg1" rows="3"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="delay2">Delay for First Follow Up (hours):</label>
+        <input type="number" id="delay2" name="delay2" min="0" value="48">
+      </div>
+
+      <div class="form-group">
+        <label for="msg2">First Follow Up:</label>
+        <span style="font-size: 12px; color: #666;">Note: You can use $name to insert the prospect's first name.</span>
+        <textarea id="msg2" name="msg2" rows="3"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="delay3">Delay for Second Follow Up (hours):</label>
+        <input type="number" id="delay3" name="delay3" min="0" value="48">
+      </div>
+
+      <div class="form-group">
+        <label for="msg3">Second Follow Up:</label>
+        <span style="font-size: 12px; color: #666;">Note: You can use $name to insert the prospect's first name.</span>
+        <textarea id="msg3" name="msg3" rows="3"></textarea>
+      </div>
+
+      <button type="submit" class="btn" id="submitBtn">Create Campaign</button>
+      <div id="spinner" class="spinner">Creating... Please wait.</div>
+    </form>
+
+    <script>
+      function handleFormSubmit(formObject) {
+        document.getElementById('submitBtn').disabled = true;
+        document.getElementById('spinner').style.display = 'block';
+        
+        google.script.run
+          .withSuccessHandler(onSuccess)
+          .withFailureHandler(onFailure)
+          .processCampaignForm(formObject);
+      }
+
+      function onSuccess(response) {
+        google.script.host.close();
+      }
+
+      function onFailure(error) {
+        alert('Error: ' + error.message);
+        document.getElementById('submitBtn').disabled = false;
+        document.getElementById('spinner').style.display = 'none';
+      }
+    </script>
+  </body>
+</html>
