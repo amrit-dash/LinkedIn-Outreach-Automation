@@ -39,3 +39,4 @@ function processCampaignForm(formObject) {
   SpreadsheetApp.getUi().alert(`Campaign '${campaignName}' created successfully!\nStatus: Not Started\nID: ${campaignId}`);
   return { success: true, name: campaignName, id: campaignId };
 }
+// Modal size constants
