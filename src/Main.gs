@@ -1,12 +1,16 @@
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   
-  const startCampaignMenu = ui.createMenu('Start Campaign Now')
+  const startCampaignMenu = ui.createMenu('🎯 . Campaign Settings')
+    .addItem('📢 . Create New Campaign', 'showCreateCampaignDialog')
+    .addSeparator()
+    .addItem('🚀 . Start Campaign', 'createDatabaseEntries')
+    .addSeparator()
     .addItem('1 - Create database entries', 'createDatabaseEntries')
     .addItem('2 - Send connection requests', 'sendConnectionRequests')
     .addItem('3 - Check connection requests', 'forceCheckRequests');
 
-  const automationMenu = ui.createMenu('Automate & Monitor')
+  const automationMenu = ui.createMenu('🤖 . Automate & Monitor')
     .addItem('▶️ . Start Campaign Background Worker', 'startBackgroundWorker')
     .addItem('⏹️ . Stop Campaign Background Worker', 'stopBackgroundWorker')
     .addSeparator()
@@ -21,7 +25,7 @@ function onOpen() {
     .addSeparator()
     .addItem('🔍 . Enrich LinkedIn Prospects', 'enrichProspects')
     .addSeparator()
-    .addItem('🚀 . Create New Campaign', 'showCreateCampaignDialog')
+    .addItem('📊 . Update Global Stats', 'updateGlobalStats')
     .addSeparator()
     .addSubMenu(startCampaignMenu)
     .addSeparator()
