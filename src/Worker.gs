@@ -376,8 +376,6 @@ function updateGlobalStats() {
   const campData = campaignsSheet.getDataRange().getValues();
   const accData = accountsSheet.getDataRange().getValues();
 
-  if (dbData.length < 2) return;
-
   const campStats = {};
   const accStats = {};
 
