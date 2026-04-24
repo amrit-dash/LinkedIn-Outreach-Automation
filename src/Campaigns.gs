@@ -172,54 +172,79 @@ function createDatabaseEntries() {
     const p = takenProspects[i];
     const enrichedFlag = String(p[11] || "").trim().toLowerCase();
     
-    // Only import if we have a provider ID (successfully enriched)
-    if ((enrichedFlag === 'yes' || enrichedFlag === 'true') && p[10]) {
-      newDbRows.push([
-        selectedCampaignId,
-        selectedCampaignName,
-        p[2], // linkedin_url
-        p[0], // first_name
-        p[1], // last_name
-        p[8], // company_name
-        p[7], // title
-        p[5], // city
-        p[6], // country
-        p[9], // company_website
-        sendingAccountId, // sending_account
-        p[10] || "", // provider_id from enriched prospect
-        "Pending", // connection_request_status
-        "", // connection_request_time
-        false, // connection_accepted
-        "", // connection_accepted_time
-        "Pending", // message_1_status
-        "", // message_1_sent_time
-        "Pending", // message_2_status
-        "", // message_2_sent_time
-        "Pending", // message_3_status
-        "", // message_3_sent_time
-        false, // reply_received
-        "", // reply_text
-        "", // reply_time
-        "", // failed_reason
-        new Date() // creation_date
-      ]);
-    } else {
+    // Always import. If not successfully enriched or missing provider_id, mark as Failed.
+    let providerId = p[10] || "";
+    let connectionReqStatus = "Pending";
+    let failedReason = "";
+    
+    if (enrichedFlag !== 'yes' && enrichedFlag !== 'true') {
+      connectionReqStatus = "Failed";
+      failedReason = `[${new Date().toISOString()}] Prospect enrichment failed or not completed.`;
+      skippedDueToError++;
+    } else if (!providerId) {
+      connectionReqStatus = "Failed";
+      failedReason = `[${new Date().toISOString()}] Missing Provider ID after enrichment.`;
       skippedDueToError++;
     }
+
+    newDbRows.push([
+      selectedCampaignId,
+      selectedCampaignName,
+      p[2], // linkedin_url
+      p[0], // first_name
+      p[1], // last_name
+      p[8], // company_name
+      p[7], // title
+      p[5], // city
+      p[6], // country
+      p[9], // company_website
+      sendingAccountId, // sending_account
+      providerId, // provider_id from enriched prospect
+      connectionReqStatus, // connection_request_status
+      "", // connection_request_time
+      false, // connection_accepted
+      "", // connection_accepted_time
+      "Pending", // message_1_status
+      "", // message_1_sent_time
+      "Pending", // message_2_status
+      "", // message_2_sent_time
+      "Pending", // message_3_status
+      "", // message_3_sent_time
+      false, // reply_received
+      "", // reply_text
+      "", // reply_time
+      failedReason, // failed_reason
+      new Date() // creation_date
+    ]);
   }
   
   if (newDbRows.length > 0) {
-    dbSheet.getRange(dbSheet.getLastRow() + 1, 1, newDbRows.length, newDbRows[0].length).setValues(newDbRows);
+    const startRow = dbSheet.getLastRow() + 1;
+    dbSheet.getRange(startRow, 1, newDbRows.length, newDbRows[0].length).setValues(newDbRows);
+    
+    // Highlight failed rows in yellow and move focus there
+    let focusSet = false;
+    for (let i = 0; i < newDbRows.length; i++) {
+      if (newDbRows[i][12] === "Failed") {
+        const cell = dbSheet.getRange(startRow + i, 13);
+        cell.setBackground('#FFFF00');
+        if (!focusSet) {
+          dbSheet.setActiveRange(cell);
+          focusSet = true;
+        }
+      }
+    }
+
     campaignsSheet.getRange(campaignRowIndex, 3).setValue(newDbRows.length);
     campaignsSheet.getRange(campaignRowIndex, 4).setValue("Active");
   } else {
-    ui.alert("No new prospects were successfully enriched to add to the database. Check Prospects sheet for errors.");
+    ui.alert("No new prospects found to add to the database.");
     return;
   }
   
   const postActionResp = ui.alert(
     "Success",
-    `Successfully set up campaign database entries: ${selectedCampaignName}\nStatus changed to Active.\nImported ${newDbRows.length} prospects into the Database.\nEnriched ${result.enrichedCount} prospects inline.\nSkipped ${skippedDueToError} due to enrichment errors/invalid URLs.\n\nDo you want to send connection requests now?`,
+    `Successfully set up campaign database entries: ${selectedCampaignName}\nStatus changed to Active.\nImported ${newDbRows.length} prospects into the Database.\nEnriched ${result.enrichedCount} prospects inline.\nSkipped ${skippedDueToError} due to enrichment errors/invalid URLs (marked as Failed in Database).\n\nDo you want to send connection requests now?`,
     ui.ButtonSet.YES_NO
   );
 
