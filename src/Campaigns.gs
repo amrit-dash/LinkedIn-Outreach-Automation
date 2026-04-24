@@ -498,3 +498,203 @@ function sendConnectionRequests(campaignIdToUse) {
                    existingInvitations.add(sendingAccountId + "_" + providerId);
                  }
                  row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent. Found ID ${foundInvId}`;
+               } else {
+                 row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent. Could not find ID.`;
+               }
+             }
+             
+             autoCorrectedCount++;
+             processedInBatch++;
+          } else {
+             errorCount++;
+             acc.currentErrorCount++;
+             acc.updated = true;
+             
+             row[12] = "Failed";
+             row[25] = `[${new Date().toISOString()}] ${extractedError}`; 
+             processedInBatch++;
+          }
+        }
+      } catch (e) {
+        errorCount++;
+        acc.currentErrorCount++;
+        acc.updated = true;
+        
+        row[12] = "Failed";
+        row[25] = `[${new Date().toISOString()}] Error: ${e.message}`.substring(0, 500);
+        processedInBatch++;
+      }
+      
+      // Update specific row cells to prevent overwriting entire sheet
+      dbSheet.getRange(i + 2, 13, 1, 4).setValues([[row[12], row[13] || "", row[14] || false, row[15] || ""]]);
+      dbSheet.getRange(i + 2, 26).setValue(row[25] || "");
+      
+      if (processedInBatch > 0 && processedInBatch % BATCH_SIZE === 0) {
+        // update accounts array then sheet
+        Object.keys(accountsMap).forEach(id => {
+          let act = accountsMap[id];
+          if (act.updated) {
+            allAccountsData[act.arrayIndex][5] = act.sentToday;
+            allAccountsData[act.arrayIndex][10] = act.currentErrorCount;
+            act.updated = false; // reset flag
+          }
+        });
+        allAccountsDataRange.setValues(allAccountsData);
+        SpreadsheetApp.flush();
+      }
+    }
+  }
+  
+  // Final flush and recalculate Campaign Stats
+  if (processedInBatch > 0 || sentCount > 0) {
+    Object.keys(accountsMap).forEach(id => {
+      let act = accountsMap[id];
+      if (act.updated) {
+        allAccountsData[act.arrayIndex][5] = act.sentToday;
+        allAccountsData[act.arrayIndex][10] = act.currentErrorCount;
+        act.updated = false;
+      }
+    });
+    allAccountsDataRange.setValues(allAccountsData);
+    SpreadsheetApp.flush();
+  }
+
+  // Calculate & Update Campaign Stats
+  let campConnectionsSent = 0;
+  let campConnectionsAccepted = 0;
+  let campMessagesSent = 0;
+  let campRepliesReceived = 0;
+
+  for (let i = 0; i < dbData.length; i++) {
+    if (dbData[i][0] === selectedCampaignId) {
+      let st = dbData[i][12]; // Connection Request Status
+      if (st === "Sent" || st === "Accepted") campConnectionsSent++;
+      
+      if (dbData[i][14] === true) campConnectionsAccepted++; // Connection Accepted (Boolean)
+      
+      // Messages 1, 2, 3
+      if (dbData[i][16] === "Sent") campMessagesSent++;
+      if (dbData[i][18] === "Sent") campMessagesSent++;
+      if (dbData[i][20] === "Sent") campMessagesSent++;
+      
+      let replyText = dbData[i][23];
+      let replyTime = dbData[i][24];
+      
+      const hasReplyBoxChecked = (dbData[i][22] === true || String(dbData[i][22]).toUpperCase() === "TRUE");
+      
+      let hasReplyText = false;
+      if (replyText !== null && replyText !== undefined && replyText !== "") {
+        let strText = String(replyText).trim().toUpperCase();
+        if (strText !== "" && strText !== "FALSE" && strText !== "NULL" && strText !== "UNDEFINED") {
+          hasReplyText = true;
+        }
+      }
+
+      let hasReplyTime = false;
+      if (replyTime !== null && replyTime !== undefined && replyTime !== "") {
+        let strTime = String(replyTime).trim().toUpperCase();
+        if (strTime !== "" && strTime !== "FALSE" && strTime !== "NULL" && strTime !== "UNDEFINED") {
+          hasReplyTime = true;
+        }
+      }
+      
+      if (hasReplyBoxChecked || hasReplyText || hasReplyTime) {
+        campRepliesReceived++;
+      }
+    }
+  }
+
+  const campaignsDataRange = campaignsSheet.getRange(2, 1, campaignsSheet.getLastRow() - 1, campaignsSheet.getLastColumn());
+  const cData = campaignsDataRange.getValues();
+  for (let i = 0; i < cData.length; i++) {
+    if (cData[i][0] === selectedCampaignId) {
+      cData[i][10] = campConnectionsSent;     // Column K
+      cData[i][11] = campConnectionsAccepted; // Column L
+      cData[i][12] = campMessagesSent;        // Column M
+      cData[i][13] = campRepliesReceived;     // Column N
+      break;
+    }
+  }
+  campaignsDataRange.setValues(cData);
+  SpreadsheetApp.flush();
+  
+  let alertMsg = `Connection Requests Processed!\n\nSuccessfully Sent: ${sentCount}\nSkipped (No Provider ID): ${skippedCount}\nAuto-Corrected: ${autoCorrectedCount}\nErrors (incl. Limits): ${errorCount}`;
+  
+  if (skippedInactiveAccountCount > 0) {
+    alertMsg += `\nSkipped ${skippedInactiveAccountCount} prospects because their assigned account is inactive.`;
+  }
+  if (errorCount > 0) {
+    alertMsg += `\n\nCheck the "failed_reason" column in your Database sheet to see the exact errors or limit notifications.`;
+  }
+  
+  ui.alert(alertMsg);
+}
+
+function forceCheckRequests() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const campaignsSheet = ss.getSheetByName("Campaigns");
+  const dbSheet = ss.getSheetByName("Database");
+  
+  const lastCampRow = campaignsSheet.getLastRow();
+  if (lastCampRow < 2) {
+    ui.alert("No campaigns found.");
+    return;
+  }
+  
+  const campaignsData = campaignsSheet.getRange(2, 1, lastCampRow - 1, campaignsSheet.getLastColumn()).getValues();
+  const activeCampaigns = campaignsData.filter(row => row[3] === "Active" || row[3] === "Completed");
+  
+  if (activeCampaigns.length === 0) {
+    ui.alert("No active or completed campaigns found to check.");
+    return;
+  }
+  
+  let selectedCampaignId;
+  let selectedCampaignName;
+  
+  if (activeCampaigns.length === 1) {
+    selectedCampaignId = activeCampaigns[0][0];
+    selectedCampaignName = activeCampaigns[0][1];
+  } else {
+    const campaignListStr = activeCampaigns.map((item, i) => `${i+1}. ${item[1]} (ID: ${item[0]})`).join('\n');
+    const campResp = ui.prompt("Select Campaign", `Enter the number (1-${activeCampaigns.length}) of the campaign to check:\n\n${campaignListStr}`, ui.ButtonSet.OK_CANCEL);
+    if (campResp.getSelectedButton() !== ui.Button.OK) return;
+    
+    const selectedListIndex = parseInt(campResp.getResponseText()) - 1;
+    if (isNaN(selectedListIndex) || selectedListIndex < 0 || selectedListIndex >= activeCampaigns.length) {
+      ui.alert("Invalid selection.");
+      return;
+    }
+    selectedCampaignId = activeCampaigns[selectedListIndex][0];
+    selectedCampaignName = activeCampaigns[selectedListIndex][1];
+  }
+  
+  let creds;
+  try {
+    creds = getCredentials();
+  } catch (e) {
+    ui.alert(`Error reading credentials: ${e.message}`);
+    return;
+  }
+  
+  const invSheet = ss.getSheetByName("Invitations");
+  const existingInvitations = new Set();
+  if (invSheet) {
+    const lastInvRow = invSheet.getLastRow();
+    if (lastInvRow >= 2) {
+      const invData = invSheet.getRange(2, 1, lastInvRow - 1, 3).getValues();
+      invData.forEach(row => {
+        if (row[2]) existingInvitations.add(String(row[2]));
+        if (row[0] && row[1]) existingInvitations.add(row[0] + "_" + row[1]);
+      });
+    }
+  }
+
+  const lastDbRow = dbSheet.getLastRow();
+  if (lastDbRow < 2) {
+    ui.alert("Database is empty.");
+    return;
+  }
+  
+  const lastDbCol = Math.max(26, dbSheet.getLastColumn());
