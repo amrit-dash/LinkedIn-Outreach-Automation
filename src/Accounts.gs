@@ -135,3 +135,4 @@ function syncAccounts() {
     ui.alert(`Error fetching from Unipile API: ${e.message}`);
   }
 }
+ 
