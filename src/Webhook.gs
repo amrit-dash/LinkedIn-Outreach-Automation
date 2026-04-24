@@ -24,7 +24,7 @@ function doPost(e) {
   
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) {
-    return ContentService.createTextOutput(JSON.stringify({ status: "error", reason: "could not obtain lock" })).setMimeType(ContentService.MimeType.JSON);
+    throw new Error("Lock timeout");
   }
   
   try {

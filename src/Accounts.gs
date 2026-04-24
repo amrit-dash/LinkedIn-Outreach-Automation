@@ -36,7 +36,7 @@ function syncAccounts() {
       let existingIds = {};
       
       if (lastRow > 1) {
-        existingData = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+        existingData = sheet.getRange(2, 1, lastRow - 1, Math.max(11, sheet.getLastColumn())).getValues();
         existingData.forEach((row, index) => {
           const id = row[1]; // unipile_id
           if (id) {
@@ -83,11 +83,7 @@ function syncAccounts() {
           const rowNum = existingIds[id].rowNum;
           
           sheet.getRange(rowNum, 1).setValue(name);
-          sheet.getRange(rowNum, 3).setValue(creds.apiKey);
-          sheet.getRange(rowNum, 4).setValue(creds.dsn);
-          sheet.getRange(rowNum, 5).setValue(status);
-          sheet.getRange(rowNum, 6).setValue(invitesToday); // connections_sent_today
-          sheet.getRange(rowNum, 8).setValue(messagesToday); // dms_sent_today
+          sheet.getRange(rowNum, 3, 1, 3).setValues([[creds.apiKey, creds.dsn, status]]);
           sheet.getRange(rowNum, 10).setValue(now);
           
           updatedCount++;

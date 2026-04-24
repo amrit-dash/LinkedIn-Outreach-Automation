@@ -137,6 +137,10 @@ function createDatabaseEntries() {
     }
   }
   
+  if (takeCount > 500) {
+    takeCount = 500;
+  }
+  
   let creds;
   try {
     creds = getCredentials();
@@ -474,14 +478,7 @@ function sendConnectionRequests(campaignIdToUse) {
             extractedError = respText.substring(0, 200);
           }
           
-          if (isAlreadyConnected) {
-             row[12] = "Accepted"; 
-             row[14] = true; 
-             row[15] = new Date(); 
-             row[25] = `[${new Date().toISOString()}] Auto-corrected: Already a connection. Moved to Accepted status.`;
-             autoCorrectedCount++;
-             processedInBatch++;
-          } else if (isInvitationAlreadySent) {
+          if (isAlreadyConnected || isInvitationAlreadySent) {
              const profileUrl = `${creds.baseUrl}/users/${providerId}?account_id=${sendingAccountId}`;
              const profileOptions = {
                "method": "GET",
@@ -503,25 +500,31 @@ function sendConnectionRequests(campaignIdToUse) {
                }
              } catch(e) {}
              
-             row[12] = "Sent";
-             row[13] = new Date(); // Treat as sent right now to move it out of pending
-             
-             if (connectedAt) {
-               row[14] = true;
-               row[15] = new Date(connectedAt); 
-               row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent and is now connected.`;
+             if (isAlreadyConnected) {
+               row[12] = "Accepted"; 
+               row[14] = true; 
+               row[15] = connectedAt ? new Date(connectedAt) : new Date(); 
+               row[25] = `[${new Date().toISOString()}] Auto-corrected: Already a connection. Moved to Accepted status.`;
              } else {
-               // We need to find the missing invitation_id so we can uninvite later if needed
-               const foundInvId = findInvitationId(creds, sendingAccountId, providerId);
-               if (foundInvId) {
-                 if (invSheet && !existingInvitations.has(String(foundInvId)) && !existingInvitations.has(sendingAccountId + "_" + providerId)) {
-                   invSheet.appendRow([sendingAccountId, providerId, foundInvId, "Sent", new Date()]);
-                   existingInvitations.add(String(foundInvId));
-                   existingInvitations.add(sendingAccountId + "_" + providerId);
-                 }
-                 row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent. Found ID ${foundInvId}`;
+               row[12] = "Sent";
+               row[13] = new Date(); // Treat as sent right now to move it out of pending
+               if (connectedAt) {
+                 row[14] = true;
+                 row[15] = new Date(connectedAt); 
+                 row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent and is now connected.`;
                } else {
-                 row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent. Could not find ID.`;
+                 // We need to find the missing invitation_id so we can uninvite later if needed
+                 const foundInvId = findInvitationId(creds, sendingAccountId, providerId);
+                 if (foundInvId) {
+                   if (invSheet && !existingInvitations.has(String(foundInvId)) && !existingInvitations.has(sendingAccountId + "_" + providerId)) {
+                     invSheet.appendRow([sendingAccountId, providerId, foundInvId, "Sent", new Date()]);
+                     existingInvitations.add(String(foundInvId));
+                     existingInvitations.add(sendingAccountId + "_" + providerId);
+                   }
+                   row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent. Found ID ${foundInvId}`;
+                 } else {
+                   row[25] = `[${new Date().toISOString()}] Auto-corrected: Invitation already sent. Could not find ID.`;
+                 }
                }
              }
              

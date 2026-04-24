@@ -307,8 +307,7 @@ function processCampaignsWorker() {
         if (code === 201 || code === 200) {
              row[statusCol] = "Sent";
              row[timeCol] = new Date();
-             dbSheet.getRange(action.dbIndex + 2, statusCol + 1).setValue("Sent");
-             dbSheet.getRange(action.dbIndex + 2, timeCol + 1).setValue(row[timeCol]);
+             dbSheet.getRange(action.dbIndex + 2, statusCol + 1, 1, 2).setValues([["Sent", row[timeCol]]]);
              
              // Random delay 3 to 7 seconds to prevent flagging and mimic human behavior
              const delayMs = Math.floor(Math.random() * (7000 - 3000 + 1) + 3000);
