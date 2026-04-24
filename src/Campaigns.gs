@@ -734,10 +734,10 @@ function forceCheckRequests() {
   }
   
   const campaignsData = campaignsSheet.getRange(2, 1, lastCampRow - 1, campaignsSheet.getLastColumn()).getValues();
-  const activeCampaigns = campaignsData.filter(row => row[3] === "Active" || row[3] === "Completed");
+  const activeCampaigns = campaignsData.filter(row => row[3] === "Active");
   
   if (activeCampaigns.length === 0) {
-    ui.alert("No active or completed campaigns found to check.");
+    ui.alert("No active campaigns found to check.");
     return;
   }
   
@@ -935,10 +935,10 @@ function sendManualMessage(campaignIdToUse, msgNumber) {
       return;
     }
     const campaignsData = campaignsSheet.getRange(2, 1, lastCampRow - 1, campaignsSheet.getLastColumn()).getValues();
-    const activeCampaigns = campaignsData.filter(row => row[3] === "Active" || row[3] === "Completed");
+    const activeCampaigns = campaignsData.filter(row => row[3] === "Active");
     
     if (activeCampaigns.length === 0) {
-      if (ui) ui.alert("No active or completed campaigns found.");
+      if (ui) ui.alert("No active campaigns found.");
       return;
     }
     
