@@ -63,5 +63,3 @@ function stopMonitoringProcess() {
     ui.ButtonSet.OK
   );
 }
-// UI Helpers
-// Ready for V1 deployment

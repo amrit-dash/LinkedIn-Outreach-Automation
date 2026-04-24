@@ -256,4 +256,3 @@ function enrichProspects() {
   
   ui.alert(`Enrichment complete!\nSuccessfully enriched total: ${result.enrichedCount}\nErrors/Failed: ${result.errorCount}`);
 }
-// Added batch enrichment

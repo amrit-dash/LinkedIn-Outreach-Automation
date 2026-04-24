@@ -807,5 +807,3 @@ function forceCheckRequests() {
   
   ui.alert(`Force Check Complete for '${selectedCampaignName}'!\n\nProspects Checked: ${checkedCount}\nNewly marked as Connected: ${updatedConnectedCount}\nMissing Invitations Re-linked: ${updatedInvitationCount}`);
 }
- 
-// Optimized query loop

@@ -55,5 +55,3 @@ function fetchWithRetry(url, options, maxRetries = 3) {
 }
 
 // getTodayCount has been removed as it is no longer used. Daily counts are tracked internally in the spreadsheet.
-// Rate limit retry logic placeholder
-// Security headers check

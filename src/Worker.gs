@@ -520,5 +520,3 @@ function stopBackgroundWorker() {
   }
   SpreadsheetApp.getUi().alert(`Background Worker stopped. (Deleted ${count} triggers)`);
 }
-// Worker frequency config
-// Added timeout handling
