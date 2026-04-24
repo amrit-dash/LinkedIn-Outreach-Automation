@@ -8,7 +8,10 @@ function onOpen() {
     .addSeparator()
     .addItem('1 - Create database entries', 'createDatabaseEntries')
     .addItem('2 - Send connection requests', 'sendConnectionRequests')
-    .addItem('3 - Check connection requests', 'forceCheckRequests');
+    .addItem('3 - Check connection requests', 'forceCheckRequests')
+    .addItem('4 - Send First Message', 'sendFirstMessageManual')
+    .addItem('5 - Send Second Message', 'sendSecondMessageManual')
+    .addItem('6 - Send Third Message', 'sendThirdMessageManual');
 
   const automationMenu = ui.createMenu('🤖 . Automate & Monitor')
     .addItem('▶️ . Start Campaign Background Worker', 'startBackgroundWorker')

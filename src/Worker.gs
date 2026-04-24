@@ -508,8 +508,67 @@ function updateGlobalStats() {
   }
 }
 
+function syncInvitationStatuses() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    Logger.log("Could not obtain lock for syncInvitationStatuses.");
+    return;
+  }
+  
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) return;
+    
+    const dbSheet = ss.getSheetByName("Database");
+    const invSheet = ss.getSheetByName("Invitations");
+    
+    if (!dbSheet || !invSheet) return;
+    
+    const dbData = dbSheet.getDataRange().getValues();
+    const invData = invSheet.getDataRange().getValues();
+    
+    if (dbData.length < 2 || invData.length < 2) return;
+    
+    // Map Database statuses
+    const dbStatusMap = {};
+    for (let i = 1; i < dbData.length; i++) {
+      const accountId = dbData[i][10];
+      const providerId = dbData[i][11];
+      const status = dbData[i][12];
+      
+      if (accountId && providerId) {
+        dbStatusMap[`${accountId}_${providerId}`] = status;
+      }
+    }
+    
+    let invUpdated = false;
+    for (let i = 1; i < invData.length; i++) {
+      const accountId = invData[i][0];
+      const providerId = invData[i][1];
+      const currentStatus = invData[i][3];
+      
+      if (accountId && providerId) {
+        const dbStatus = dbStatusMap[`${accountId}_${providerId}`];
+        if (dbStatus && (dbStatus === "Sent" || dbStatus === "Accepted")) {
+          if (currentStatus !== dbStatus) {
+            invData[i][3] = dbStatus;
+            invUpdated = true;
+          }
+        }
+      }
+    }
+    
+    if (invUpdated) {
+      invSheet.getRange(1, 1, invData.length, invData[0].length).setValues(invData);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function processStatsWorker() {
   updateGlobalStats();
+  syncInvitationStatuses();
 }
 
 function startStatsWorker() {

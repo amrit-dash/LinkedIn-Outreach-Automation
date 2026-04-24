@@ -869,5 +869,234 @@ function forceCheckRequests() {
   // Call updateGlobalStats to sync changes to campaign tab
   updateGlobalStats();
   
-  ui.alert(`Force Check Complete for '${selectedCampaignName}'!\n\nProspects Checked: ${checkedCount}\nNewly marked as Connected: ${updatedConnectedCount}\nMissing Invitations Re-linked: ${updatedInvitationCount}`);
+  const nextResp = ui.alert(
+    `Force Check Complete for '${selectedCampaignName}'!`,
+    `Prospects Checked: ${checkedCount}\nNewly marked as Connected: ${updatedConnectedCount}\nMissing Invitations Re-linked: ${updatedInvitationCount}\n\nDo you want to send the first message to connected prospects now?`,
+    ui.ButtonSet.YES_NO
+  );
+  if (nextResp === ui.Button.YES) {
+    sendFirstMessageManual(selectedCampaignId);
+  }
+}
+function sendFirstMessageManual(campaignIdToUse) {
+  sendManualMessage(campaignIdToUse, 1);
+}
+
+function sendSecondMessageManual(campaignIdToUse) {
+  sendManualMessage(campaignIdToUse, 2);
+}
+
+function sendThirdMessageManual(campaignIdToUse) {
+  sendManualMessage(campaignIdToUse, 3);
+}
+
+function sendManualMessage(campaignIdToUse, msgNumber) {
+  let ui = null;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) {}
+  
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const campaignsSheet = ss.getSheetByName("Campaigns");
+  const dbSheet = ss.getSheetByName("Database");
+
+  let selectedCampaignId = campaignIdToUse;
+  let campaignRow = null;
+  
+  if (!selectedCampaignId || typeof selectedCampaignId !== 'string') {
+    const lastCampRow = campaignsSheet.getLastRow();
+    if (lastCampRow < 2) {
+      if (ui) ui.alert("No campaigns found.");
+      return;
+    }
+    const campaignsData = campaignsSheet.getRange(2, 1, lastCampRow - 1, campaignsSheet.getLastColumn()).getValues();
+    const activeCampaigns = campaignsData.filter(row => row[3] === "Active" || row[3] === "Completed");
+    
+    if (activeCampaigns.length === 0) {
+      if (ui) ui.alert("No active or completed campaigns found.");
+      return;
+    }
+    
+    if (activeCampaigns.length === 1) {
+      campaignRow = activeCampaigns[0];
+      selectedCampaignId = campaignRow[0];
+    } else {
+      if (!ui) return;
+      const campaignListStr = activeCampaigns.map((item, i) => `${i+1}. ${item[1]} (ID: ${item[0]})`).join('\n');
+      const campResp = ui.prompt(`Select Campaign for Message ${msgNumber}`, `Enter the number (1-${activeCampaigns.length}) of the campaign:\n\n${campaignListStr}`, ui.ButtonSet.OK_CANCEL);
+      if (campResp.getSelectedButton() !== ui.Button.OK) return;
+      
+      const selectedListIndex = parseInt(campResp.getResponseText()) - 1;
+      if (isNaN(selectedListIndex) || selectedListIndex < 0 || selectedListIndex >= activeCampaigns.length) {
+        ui.alert("Invalid selection.");
+        return;
+      }
+      campaignRow = activeCampaigns[selectedListIndex];
+      selectedCampaignId = campaignRow[0];
+    }
+  } else {
+    const campaignsData = campaignsSheet.getRange(2, 1, campaignsSheet.getLastRow() - 1, campaignsSheet.getLastColumn()).getValues();
+    campaignRow = campaignsData.find(row => row[0] === selectedCampaignId);
+  }
+
+  if (!campaignRow) {
+    if (ui) ui.alert("Campaign not found.");
+    return;
+  }
+
+  const lastDbRow = dbSheet.getLastRow();
+  if (lastDbRow < 2) {
+    if (ui) ui.alert("Database is empty.");
+    return;
+  }
+  
+  const dbData = dbSheet.getRange(2, 1, lastDbRow - 1, Math.max(26, dbSheet.getLastColumn())).getValues();
+
+  let readyProspects = [];
+  let notReadyProspects = [];
+  const nowTime = Date.now();
+
+  const delayHours = msgNumber === 2 ? (parseFloat(campaignRow[8]) || 0) : (msgNumber === 3 ? (parseFloat(campaignRow[9]) || 0) : 0);
+  const msgTextTemplate = msgNumber === 1 ? campaignRow[5] : (msgNumber === 2 ? campaignRow[6] : campaignRow[7]);
+
+  for (let i = 0; i < dbData.length; i++) {
+    const row = dbData[i];
+    if (row[0] !== selectedCampaignId) continue;
+    
+    const hasReplyBoxChecked = (row[22] === true || String(row[22]).toUpperCase() === "TRUE");
+    let hasReplyText = false;
+    if (row[23]) {
+      let strText = String(row[23]).trim().toUpperCase();
+      if (strText !== "" && strText !== "FALSE" && strText !== "NULL" && strText !== "UNDEFINED") hasReplyText = true;
+    }
+    let hasReplyTime = false;
+    if (row[24]) {
+      let strTime = String(row[24]).trim().toUpperCase();
+      if (strTime !== "" && strTime !== "FALSE" && strTime !== "NULL" && strTime !== "UNDEFINED") hasReplyTime = true;
+    }
+    
+    if (hasReplyBoxChecked || hasReplyText || hasReplyTime) continue;
+    
+    const connAccepted = row[14];
+    const msg1Status = row[16];
+    const msg2Status = row[18];
+    const msg3Status = row[20];
+    const acceptedTime = row[15] ? new Date(row[15]) : null;
+
+    if (connAccepted !== true) continue;
+
+    if (msgNumber === 1) {
+      if (msg1Status === "Pending") {
+        readyProspects.push({ rowIndex: i, row: row });
+      }
+    } else if (msgNumber === 2) {
+      if ((msg1Status === "Sent" || msg1Status === "Skipped") && msg2Status === "Pending") {
+        const msg1Time = row[17] ? new Date(row[17]) : acceptedTime;
+        if (msg1Time) {
+          const hoursPassed = (nowTime - msg1Time.getTime()) / (1000 * 3600);
+          if (hoursPassed >= delayHours) {
+            readyProspects.push({ rowIndex: i, row: row });
+          } else {
+            notReadyProspects.push({ rowIndex: i, row: row });
+          }
+        }
+      }
+    } else if (msgNumber === 3) {
+      if ((msg2Status === "Sent" || msg2Status === "Skipped") && msg3Status === "Pending") {
+        const msg2Time = row[19] ? new Date(row[19]) : (row[17] ? new Date(row[17]) : acceptedTime);
+        if (msg2Time) {
+          const hoursPassed = (nowTime - msg2Time.getTime()) / (1000 * 3600);
+          if (hoursPassed >= delayHours) {
+            readyProspects.push({ rowIndex: i, row: row });
+          } else {
+            notReadyProspects.push({ rowIndex: i, row: row });
+          }
+        }
+      }
+    }
+  }
+
+  let prospectsToProcess = [...readyProspects];
+
+  if (ui) {
+    if (msgNumber > 1 && notReadyProspects.length > 0) {
+      const resp = ui.alert(
+        "Delay Warning", 
+        `Found ${readyProspects.length} prospects ready for Message ${msgNumber}.\nHowever, there are ${notReadyProspects.length} prospects where the delay requirement (${delayHours} hours) has not been met yet.\n\nDo you want to Override Delay and Send Message ${msgNumber} to ALL of them now?`,
+        ui.ButtonSet.YES_NO
+      );
+      if (resp === ui.Button.YES) {
+        prospectsToProcess = prospectsToProcess.concat(notReadyProspects);
+      }
+    } else if (prospectsToProcess.length === 0) {
+      ui.alert(`No prospects are currently pending Message ${msgNumber}.`);
+      return;
+    } else {
+      const resp = ui.alert("Confirm", `Found ${readyProspects.length} prospects ready for Message ${msgNumber}. Proceed to send?`, ui.ButtonSet.YES_NO);
+      if (resp !== ui.Button.YES) return;
+    }
+  } else {
+    // Background - process ready prospects only
+  }
+
+  if (prospectsToProcess.length === 0) return;
+
+  let creds;
+  try {
+    creds = getCredentials();
+  } catch (e) {
+    if (ui) ui.alert(`Error reading credentials: ${e.message}`);
+    return;
+  }
+
+  let sentCount = 0;
+  let skippedCount = 0;
+  let errorCount = 0;
+
+  const statusCol = msgNumber === 1 ? 17 : (msgNumber === 2 ? 19 : 21);
+  
+  for (let k = 0; k < prospectsToProcess.length; k++) {
+    const item = prospectsToProcess[k];
+    const i = item.rowIndex;
+    const row = item.row;
+
+    const accountId = row[10];
+    const providerId = row[11];
+    const firstName = String(row[3] || "").trim();
+
+    let msgText = msgTextTemplate;
+    if (msgText && String(msgText).trim() !== "") {
+      msgText = String(msgText).replace(/\$name/g, firstName);
+      
+      const payload = { account_id: accountId, text: msgText, attendees_ids: [providerId] };
+      const options = {
+        "method": "POST",
+        "headers": { "X-API-KEY": creds.apiKey, "Accept": "application/json", "Content-Type": "application/json" },
+        "payload": JSON.stringify(payload),
+        "muteHttpExceptions": true
+      };
+      
+      try {
+        const response = fetchWithRetry(`${creds.baseUrl}/chats`, options);
+        const code = response.getResponseCode();
+        if (code === 201 || code === 200) {
+          dbSheet.getRange(i + 2, statusCol, 1, 2).setValues([["Sent", new Date()]]);
+          sentCount++;
+          Utilities.sleep(Math.floor(Math.random() * 3000) + 2000);
+        } else {
+          errorCount++;
+          dbSheet.getRange(i + 2, statusCol).setValue("Failed");
+          dbSheet.getRange(i + 2, 26).setValue(`[${new Date().toISOString()}] MSG${msgNumber} Error: ${response.getContentText()}`.substring(0, 500));
+        }
+      } catch (e) {
+        errorCount++;
+        dbSheet.getRange(i + 2, statusCol).setValue("Failed");
+        dbSheet.getRange(i + 2, 26).setValue(`[${new Date().toISOString()}] MSG${msgNumber} Exception: ${e.message}`.substring(0, 500));
+      }
+    } else {
+      dbSheet.getRange(i + 2, statusCol, 1, 2).setValues([["Skipped", new Date()]]);
+      skippedCount++;
+    }
+  }
+
+  updateGlobalStats();
+  if (ui) ui.alert(`Message ${msgNumber} Sending Complete!\n\nSent: ${sentCount}\nSkipped: ${skippedCount}\nErrors: ${errorCount}`);
 }
