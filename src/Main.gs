@@ -60,7 +60,7 @@ function startMonitoringProcess() {
     if (String(n8nStatus).trim().toUpperCase() !== 'DISABLED') {
       const cell = credSheet.getRange(5, 2);
       credSheet.setActiveRange(cell);
-      cell.setBackground('#FFFF00');
+      cell.setBackground('#FBE6A3');
       ui.alert('Action Cancelled', 'You must disable the n8n_webhook_status before starting Apps Script monitoring.', ui.ButtonSet.OK);
       return;
     }
