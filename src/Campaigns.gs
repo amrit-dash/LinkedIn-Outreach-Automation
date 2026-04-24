@@ -225,7 +225,13 @@ function createDatabaseEntries() {
 }
 
 function sendConnectionRequests(campaignIdToUse) {
-  const ui = SpreadsheetApp.getUi();
+  let ui = null;
+  try {
+    ui = SpreadsheetApp.getUi();
+  } catch(e) {
+    // Running in background trigger, UI is not available
+  }
+  
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const campaignsSheet = ss.getSheetByName("Campaigns");
   const dbSheet = ss.getSheetByName("Database");
@@ -236,14 +242,14 @@ function sendConnectionRequests(campaignIdToUse) {
   if (!selectedCampaignId || typeof selectedCampaignId !== 'string') {
     const lastCampRow = campaignsSheet.getLastRow();
     if (lastCampRow < 2) {
-      ui.alert("No campaigns found.");
+      if (ui) ui.alert("No campaigns found.");
       return;
     }
     const campaignsData = campaignsSheet.getRange(2, 1, lastCampRow - 1, campaignsSheet.getLastColumn()).getValues();
     const activeCampaigns = campaignsData.filter(row => row[3] === "Active");
     
     if (activeCampaigns.length === 0) {
-      ui.alert("No active campaigns found. Please 'Create database entries' to activate a campaign first.");
+      if (ui) ui.alert("No active campaigns found. Please 'Create database entries' to activate a campaign first.");
       return;
     }
     
@@ -251,6 +257,7 @@ function sendConnectionRequests(campaignIdToUse) {
       selectedCampaignId = activeCampaigns[0][0];
       connectionNote = activeCampaigns[0][4]; 
     } else {
+      if (!ui) return; // Cannot prompt from background
       const campaignListStr = activeCampaigns.map((item, i) => `${i+1}. ${item[1]} (ID: ${item[0]})`).join('\n');
       const campResp = ui.prompt("Select Campaign", `Enter the number (1-${activeCampaigns.length}) of the active campaign to process:\n\n${campaignListStr}`, ui.ButtonSet.OK_CANCEL);
       if (campResp.getSelectedButton() !== ui.Button.OK) return;
@@ -274,7 +281,7 @@ function sendConnectionRequests(campaignIdToUse) {
   const accountsSheet = ss.getSheetByName("Accounts");
   const lastAccRow = accountsSheet.getLastRow();
   if (lastAccRow < 2) {
-    ui.alert("No accounts found. Sync accounts first.");
+    if (ui) ui.alert("No accounts found. Sync accounts first.");
     return;
   }
   
@@ -296,7 +303,7 @@ function sendConnectionRequests(campaignIdToUse) {
   });
 
   if (Object.keys(accountsMap).length === 0) {
-    ui.alert("No active accounts found. Please ensure your accounts are active and try syncing again.");
+    if (ui) ui.alert("No active accounts found. Please ensure your accounts are active and try syncing again.");
     return;
   }
 
@@ -304,7 +311,7 @@ function sendConnectionRequests(campaignIdToUse) {
   try {
     creds = getCredentials();
   } catch (e) {
-    ui.alert(`Error reading credentials: ${e.message}`);
+    if (ui) ui.alert(`Error reading credentials: ${e.message}`);
     return;
   }
   
@@ -325,7 +332,7 @@ function sendConnectionRequests(campaignIdToUse) {
   
   const lastDbRow = dbSheet.getLastRow();
   if (lastDbRow < 2) {
-    ui.alert("Database is empty.");
+    if (ui) ui.alert("Database is empty.");
     return;
   }
   
@@ -341,7 +348,21 @@ function sendConnectionRequests(campaignIdToUse) {
   let processedInBatch = 0;
   const BATCH_SIZE = 10;
   
-  for (let i = 0; i < dbData.length; i++) {
+  const startTime = Date.now();
+  const props = PropertiesService.getScriptProperties();
+  const resumeIndexKey = `RESUME_INDEX_${selectedCampaignId}`;
+  const savedIndex = parseInt(props.getProperty(resumeIndexKey) || "0");
+  
+  let indexReached = savedIndex;
+  let hitTimeLimit = false;
+  
+  for (let i = savedIndex; i < dbData.length; i++) {
+    if (Date.now() - startTime > 240000) { // 4 minutes safety limit
+       hitTimeLimit = true;
+       indexReached = i;
+       break;
+    }
+    
     const row = dbData[i];
     const campId = row[0];
     const sendingAccountId = row[10];
@@ -429,7 +450,8 @@ function sendConnectionRequests(campaignIdToUse) {
           sentCount++;
           processedInBatch++;
           
-          Utilities.sleep(500); 
+          const delayMs = Math.floor(Math.random() * (5000 - 2000 + 1) + 2000); // 2 to 5 seconds
+          Utilities.sleep(delayMs); 
         } else {
           const respText = response.getContentText();
           let isAlreadyConnected = false;
@@ -559,6 +581,26 @@ function sendConnectionRequests(campaignIdToUse) {
     SpreadsheetApp.flush();
   }
 
+  if (hitTimeLimit) {
+     props.setProperty(resumeIndexKey, String(indexReached));
+     
+     // Set a trigger to resume this function automatically in 1 minute
+     ScriptApp.newTrigger('resumeConnectionRequests')
+        .timeBased()
+        .after(60 * 1000)
+        .create();
+        
+     props.setProperty('RESUME_CAMPAIGN_ID', selectedCampaignId);
+     
+     ui.alert(`Execution time limit reached! Pausing to protect LinkedIn account & servers.\n\nProcessed so far: ${processedInBatch}\nSent: ${sentCount}\n\nThe script will AUTOMATICALLY RESUME in 1 minute in the background.`);
+     
+     updateGlobalStats(); // ensure stats are updated before yielding
+     return;
+  } else {
+     props.deleteProperty(resumeIndexKey);
+     props.deleteProperty('RESUME_CAMPAIGN_ID');
+  }
+
   // Calculate & Update Campaign Stats
   let campConnectionsSent = 0;
   let campConnectionsAccepted = 0;
@@ -627,7 +669,26 @@ function sendConnectionRequests(campaignIdToUse) {
     alertMsg += `\n\nCheck the "failed_reason" column in your Database sheet to see the exact errors or limit notifications.`;
   }
   
-  ui.alert(alertMsg);
+  if (ui) {
+    ui.alert(alertMsg);
+  }
+}
+
+function resumeConnectionRequests() {
+  const props = PropertiesService.getScriptProperties();
+  const campaignId = props.getProperty('RESUME_CAMPAIGN_ID');
+  
+  // Clean up the one-time trigger
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'resumeConnectionRequests') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  
+  if (campaignId) {
+    sendConnectionRequests(campaignId);
+  }
 }
 
 function forceCheckRequests() {

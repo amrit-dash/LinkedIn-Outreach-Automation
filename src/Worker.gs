@@ -220,86 +220,90 @@ function processCampaignsWorker() {
     return;
   }
   
-  // Process API requests in parallel using fetchAll (batches of 50 to be safe)
-  // This drastically increases speed compared to sequential loops
-  const BATCH_API_SIZE = 50;
+  // Process API requests sequentially to simulate human behavior and avoid flagging
   let invUpdated = false;
+  const startTime = Date.now();
   
-  for (let b = 0; b < requests.length; b += BATCH_API_SIZE) {
-    const batchReqs = requests.slice(b, b + BATCH_API_SIZE);
-    const batchActions = actions.slice(b, b + BATCH_API_SIZE);
-    
-    let responses;
-    try {
-      responses = UrlFetchApp.fetchAll(batchReqs);
-    } catch(e) {
-      Logger.log("UrlFetchApp.fetchAll error: " + e.message);
-      continue;
-    }
-    
-    for (let k = 0; k < responses.length; k++) {
-       const response = responses[k];
-       const action = batchActions[k];
-       const row = dbData[action.dbIndex];
-       const nowStr = new Date().toISOString();
-       
-       let code = response.getResponseCode();
-       let respText = "";
-       try {
-         respText = response.getContentText();
-       } catch(e) {
-         respText = "Parse error: " + e.message;
-       }
-       
-       if (action.type === 'uninvite') {
-          if (code === 200 || code === 204) {
-              row[12] = "Failed";
-              row[25] = `[${nowStr}] 7 days passed, so it is uninvited.`;
-              dbSheet.getRange(action.dbIndex + 2, 13).setValue("Failed");
-              dbSheet.getRange(action.dbIndex + 2, 26).setValue(`[${nowStr}] 7 days passed, so it is uninvited.`);
-              if (action.invRowIndex >= 0) invData[action.invRowIndex][3] = "Uninvited";
-              invUpdated = true;
-          } else if (code === 429 || code >= 500) {
-              Logger.log(`Worker uninvite: Rate limit or server error (${code}). Retrying next run.`);
-          } else {
-               if (respText.includes("invalid_invitation_id") || respText.includes("Resource not found")) {
-                   row[12] = "Failed";
-                   row[25] = `[${nowStr}] 7 days passed, uninvite failed (already gone).`;
-                   dbSheet.getRange(action.dbIndex + 2, 13).setValue("Failed");
-                   dbSheet.getRange(action.dbIndex + 2, 26).setValue(`[${nowStr}] 7 days passed, uninvite failed (already gone).`);
-                   if (action.invRowIndex >= 0) invData[action.invRowIndex][3] = "Uninvited";
-                   invUpdated = true;
-               } else {
-                   Logger.log(`Failed to uninvite ${action.providerId}: ${respText}`);
-               }
-          }
-       } else if (action.type === 'msg1' || action.type === 'msg2' || action.type === 'msg3') {
-          const statusCol = action.type === 'msg1' ? 16 : (action.type === 'msg2' ? 18 : 20);
-          const timeCol = action.type === 'msg1' ? 17 : (action.type === 'msg2' ? 19 : 21);
-          
-          if (code === 201 || code === 200) {
-               row[statusCol] = "Sent";
-               row[timeCol] = new Date();
-               dbSheet.getRange(action.dbIndex + 2, statusCol + 1).setValue("Sent");
-               dbSheet.getRange(action.dbIndex + 2, timeCol + 1).setValue(row[timeCol]);
-          } else if (code === 429 || code >= 500) {
-               Logger.log(`Worker ${action.type}: Rate limit or server error (${code}). Retrying next run.`);
-          } else {
-               row[statusCol] = "Failed";
-               row[25] = `[${nowStr}] ${action.type.toUpperCase()} Error: ${respText}`.substring(0, 500);
-               dbSheet.getRange(action.dbIndex + 2, statusCol + 1).setValue("Failed");
-               dbSheet.getRange(action.dbIndex + 2, 26).setValue(row[25]);
-          }
-       }
-    }
-    
-    // Save state after each batch to prevent data loss
-    if (invUpdated && invRange && invData.length > 0) {
-       invRange.setValues(invData);
-       invUpdated = false;
-    }
-    SpreadsheetApp.flush();
+  for (let k = 0; k < requests.length; k++) {
+     if (Date.now() - startTime > 240000) { // 4 minutes safety
+       Logger.log("Nearing execution limit in worker. Stopping early. Will resume next run.");
+       break;
+     }
+
+     const req = requests[k];
+     const action = actions[k];
+     const row = dbData[action.dbIndex];
+     const nowStr = new Date().toISOString();
+     
+     let response;
+     try {
+       response = fetchWithRetry(req.url, req);
+     } catch(e) {
+       Logger.log(`Worker request failed: ${e.message}`);
+       continue;
+     }
+     
+     let code = response.getResponseCode();
+     let respText = "";
+     try {
+       respText = response.getContentText();
+     } catch(e) {
+       respText = "Parse error: " + e.message;
+     }
+     
+     if (action.type === 'uninvite') {
+        if (code === 200 || code === 204) {
+            row[12] = "Failed";
+            row[25] = `[${nowStr}] 7 days passed, so it is uninvited.`;
+            dbSheet.getRange(action.dbIndex + 2, 13).setValue("Failed");
+            dbSheet.getRange(action.dbIndex + 2, 26).setValue(`[${nowStr}] 7 days passed, so it is uninvited.`);
+            if (action.invRowIndex >= 0) invData[action.invRowIndex][3] = "Uninvited";
+            invUpdated = true;
+        } else if (code === 429 || code >= 500) {
+            Logger.log(`Worker uninvite: Rate limit or server error (${code}). Retrying next run.`);
+        } else {
+             if (respText.includes("invalid_invitation_id") || respText.includes("Resource not found")) {
+                 row[12] = "Failed";
+                 row[25] = `[${nowStr}] 7 days passed, uninvite failed (already gone).`;
+                 dbSheet.getRange(action.dbIndex + 2, 13).setValue("Failed");
+                 dbSheet.getRange(action.dbIndex + 2, 26).setValue(`[${nowStr}] 7 days passed, uninvite failed (already gone).`);
+                 if (action.invRowIndex >= 0) invData[action.invRowIndex][3] = "Uninvited";
+                 invUpdated = true;
+             } else {
+                 Logger.log(`Failed to uninvite ${action.providerId}: ${respText}`);
+             }
+        }
+        Utilities.sleep(1000); // Small delay for uninvites
+     } else if (action.type === 'msg1' || action.type === 'msg2' || action.type === 'msg3') {
+        const statusCol = action.type === 'msg1' ? 16 : (action.type === 'msg2' ? 18 : 20);
+        const timeCol = action.type === 'msg1' ? 17 : (action.type === 'msg2' ? 19 : 21);
+        
+        if (code === 201 || code === 200) {
+             row[statusCol] = "Sent";
+             row[timeCol] = new Date();
+             dbSheet.getRange(action.dbIndex + 2, statusCol + 1).setValue("Sent");
+             dbSheet.getRange(action.dbIndex + 2, timeCol + 1).setValue(row[timeCol]);
+             
+             // Random delay 3 to 7 seconds to prevent flagging and mimic human behavior
+             const delayMs = Math.floor(Math.random() * (7000 - 3000 + 1) + 3000);
+             Utilities.sleep(delayMs);
+        } else if (code === 429 || code >= 500) {
+             Logger.log(`Worker ${action.type}: Rate limit or server error (${code}). Retrying next run.`);
+        } else {
+             row[statusCol] = "Failed";
+             row[25] = `[${nowStr}] ${action.type.toUpperCase()} Error: ${respText}`.substring(0, 500);
+             dbSheet.getRange(action.dbIndex + 2, statusCol + 1).setValue("Failed");
+             dbSheet.getRange(action.dbIndex + 2, 26).setValue(row[25]);
+        }
+     }
   }
+  
+  // Save state after batch to prevent data loss
+  if (invUpdated && invRange && invData.length > 0) {
+     invRange.setValues(invData);
+     invUpdated = false;
+  }
+  SpreadsheetApp.flush();
   
   // Sync all global stats
   updateGlobalStats();
