@@ -611,7 +611,7 @@ function startBackgroundWorker() {
   
   ScriptApp.newTrigger('processCampaignsWorker')
     .timeBased()
-    .everyMinutes(15)
+    .everyMinutes(12)
     .create();
     
   SpreadsheetApp.getUi().alert("Background Worker started! It will run every 15 minutes to process messages and 7-day uninvites.");
