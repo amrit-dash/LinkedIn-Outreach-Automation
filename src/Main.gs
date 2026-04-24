@@ -1,17 +1,20 @@
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   
-  const startCampaignMenu = ui.createMenu('🎯 . Campaign Settings')
-    .addItem('📢 . Create New Campaign', 'showCreateCampaignDialog')
-    .addSeparator()
-    .addItem('🚀 . Start Campaign', 'createDatabaseEntries')
-    .addSeparator()
+  const manualTriggersMenu = ui.createMenu('⚙️ . Manual Triggers')
     .addItem('1 - Create database entries', 'createDatabaseEntries')
     .addItem('2 - Send connection requests', 'sendConnectionRequests')
     .addItem('3 - Check connection requests', 'forceCheckRequests')
     .addItem('4 - Send First Message', 'sendFirstMessageManual')
     .addItem('5 - Send Second Message', 'sendSecondMessageManual')
     .addItem('6 - Send Third Message', 'sendThirdMessageManual');
+
+  const startCampaignMenu = ui.createMenu('🎯 . Campaign Settings')
+    .addItem('📢 . Create New Campaign', 'showCreateCampaignDialog')
+    .addSeparator()
+    .addItem('🚀 . Start Campaign', 'createDatabaseEntries')
+    .addSeparator()
+    .addSubMenu(manualTriggersMenu);
 
   const automationMenu = ui.createMenu('🤖 . Automate & Monitor')
     .addItem('▶️ . Start Campaign Background Worker', 'startBackgroundWorker')
