@@ -1,7 +1,6 @@
 function doPost(e) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const credSheet = ss.getSheetByName("Credentials");
-  const isEnabled = credSheet ? credSheet.getRange(4, 2).getValue() : "DISABLED";
+  const props = PropertiesService.getScriptProperties();
+  const isEnabled = props.getProperty('WEBHOOK_MONITORING_ENABLED') || "DISABLED";
   
   if (String(isEnabled).toUpperCase() !== 'ENABLED') {
     return ContentService.createTextOutput(JSON.stringify({ status: "ignored", reason: "monitoring disabled in Apps Script" })).setMimeType(ContentService.MimeType.JSON);

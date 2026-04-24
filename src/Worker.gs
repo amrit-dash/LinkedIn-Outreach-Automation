@@ -323,10 +323,13 @@ function updateGlobalStats() {
   const credSheet = ss.getSheetByName("Credentials");
 
   if (credSheet) {
+    const props = PropertiesService.getScriptProperties();
+    let propStatus = props.getProperty('WEBHOOK_MONITORING_ENABLED') || 'DISABLED';
+    
     let statusValue = credSheet.getRange(4, 2).getValue();
-    if (!statusValue || (String(statusValue).toUpperCase() !== 'ENABLED' && String(statusValue).toUpperCase() !== 'DISABLED')) {
+    if (String(statusValue).toUpperCase() !== String(propStatus).toUpperCase()) {
       credSheet.getRange(4, 1).setValue("appsscript_webhook_status");
-      credSheet.getRange(4, 2).setValue("DISABLED");
+      credSheet.getRange(4, 2).setValue(propStatus);
     }
   }
 

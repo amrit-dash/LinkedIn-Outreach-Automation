@@ -46,9 +46,13 @@ function onEdit(e) {
 
 function startMonitoringProcess() {
   const ui = SpreadsheetApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('WEBHOOK_MONITORING_ENABLED', 'ENABLED');
+  
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const credSheet = ss.getSheetByName("Credentials");
   if (credSheet) {
+    credSheet.getRange(4, 1).setValue("appsscript_webhook_status");
     credSheet.getRange(4, 2).setValue("ENABLED");
   }
   
@@ -61,9 +65,13 @@ function startMonitoringProcess() {
 
 function stopMonitoringProcess() {
   const ui = SpreadsheetApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('WEBHOOK_MONITORING_ENABLED', 'DISABLED');
+  
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const credSheet = ss.getSheetByName("Credentials");
   if (credSheet) {
+    credSheet.getRange(4, 1).setValue("appsscript_webhook_status");
     credSheet.getRange(4, 2).setValue("DISABLED");
   }
   
