@@ -62,7 +62,7 @@ Whether you are running multi-account outreach campaigns or simple networking au
 │   ├── UI.gs                             # Modal and frontend interactions
 │   ├── CampaignForm.html                 # HTML frontend for Campaign Builder
 │   └── appsscript.json                   # Google Apps Script Manifest
-├── 810 automation/                       
+├── n8n automation/                       
 │   └── LinkedIn Outreach Automation.json # Config files for external automation logic
 ├── .gitignore                            # Excludes sensitive/local files
 ├── project-plan.md                       # Historical project roadmap
