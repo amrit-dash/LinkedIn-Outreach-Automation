@@ -1,234 +1,254 @@
 function processCampaignsWorker() {
+  const props = PropertiesService.getScriptProperties();
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) {
     Logger.log("Could not obtain lock for processCampaignsWorker.");
     return;
   }
+  
+  // Track continuous execution
+  let executionLoops = 0;
+  const maxLoops = 2; // Run twice within a single 15-minute trigger
+  const globalStartTime = Date.now();
+  
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const dbSheet = ss.getSheetByName("Database");
-  const campaignsSheet = ss.getSheetByName("Campaigns");
-  const invSheet = ss.getSheetByName("Invitations");
-  
-  if (!dbSheet || !campaignsSheet) return;
-  
-  let creds;
-  try {
-    creds = getCredentials();
-  } catch (e) {
-    Logger.log("Error loading credentials: " + e.message);
-    return;
-  }
-
-  const lastDbRow = dbSheet.getLastRow();
-  if (lastDbRow < 2) return;
-  
-  const lastDbCol = Math.max(26, dbSheet.getLastColumn());
-  const dbRange = dbSheet.getRange(2, 1, lastDbRow - 1, lastDbCol);
-  const dbData = dbRange.getValues();
-
-  const lastCampRow = campaignsSheet.getLastRow();
-  if (lastCampRow < 2) return;
-  const campaignsData = campaignsSheet.getRange(2, 1, lastCampRow - 1, campaignsSheet.getLastColumn()).getValues();
-
-  let invData = [];
-  let invRange = null;
-  if (invSheet) {
-    const lastInvRow = invSheet.getLastRow();
-    if (lastInvRow >= 2) {
-      invRange = invSheet.getRange(2, 1, lastInvRow - 1, invSheet.getLastColumn());
-      invData = invRange.getValues();
-    }
-  }
-  
-  const now = new Date();
-  const nowTime = now.getTime();
-  
-  // O(1) Lookup Maps for Maximum Efficiency
-  const campaignMap = {};
-  for (let i = 0; i < campaignsData.length; i++) {
-    campaignMap[campaignsData[i][0]] = campaignsData[i];
-  }
-  
-  const invMap = {};
-  for (let j = 0; j < invData.length; j++) {
-    if (invData[j][3] === "Sent") {
-      const key = invData[j][0] + "_" + invData[j][1]; // accountId_providerId
-      invMap[key] = {
-        invId: invData[j][2],
-        rowIndex: j
-      };
-    }
-  }
-
-  const requests = [];
-  const actions = [];
-  let dbUpdated = false;
-  
-  for (let i = 0; i < dbData.length; i++) {
-    const row = dbData[i];
-    
-    // Check if reply received, skip processing for messaging/uninviting
-    let replyTextCheck = row[23];
-    let replyTimeCheck = row[24];
-    
-    const hasReplyBoxChecked = (row[22] === true || String(row[22]).toUpperCase() === "TRUE");
-    
-    let hasReplyText = false;
-    if (replyTextCheck !== null && replyTextCheck !== undefined && replyTextCheck !== "") {
-      let strText = String(replyTextCheck).trim().toUpperCase();
-      if (strText !== "" && strText !== "FALSE" && strText !== "NULL" && strText !== "UNDEFINED") {
-        hasReplyText = true;
+    while (executionLoops < maxLoops) {
+      if (Date.now() - globalStartTime > 240000) { // 4 minutes overall safety
+        Logger.log("Overall worker execution nearing limit. Stopping early.");
+        break;
       }
-    }
-
-    let hasReplyTime = false;
-    if (replyTimeCheck !== null && replyTimeCheck !== undefined && replyTimeCheck !== "") {
-      let strTime = String(replyTimeCheck).trim().toUpperCase();
-      if (strTime !== "" && strTime !== "FALSE" && strTime !== "NULL" && strTime !== "UNDEFINED") {
-        hasReplyTime = true;
+      
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const dbSheet = ss.getSheetByName("Database");
+      const campaignsSheet = ss.getSheetByName("Campaigns");
+      const invSheet = ss.getSheetByName("Invitations");
+      
+      if (!dbSheet || !campaignsSheet) break;
+  
+      let creds;
+      try {
+        creds = getCredentials();
+      } catch (e) {
+        Logger.log("Error loading credentials: " + e.message);
+        break;
       }
-    }
-    
-    if (hasReplyBoxChecked || hasReplyText || hasReplyTime) {
-      continue; // Reply received
-    }
-    
-    const campId = row[0];
-    const accountId = row[10];
-    const providerId = row[11];
-    const connReqStatus = row[12];
-    const connReqTime = row[13] ? new Date(row[13]) : null;
-    const connAccepted = row[14];
-    
-    // Find campaign details directly using Hash Map
-    const campaign = campaignMap[campId];
-    if (!campaign) continue;
-    
-    // Case 1: Uninvite after 7 days
-    if (connReqStatus === "Sent" && connAccepted !== true) {
-      if (connReqTime) {
-        const daysPassed = (nowTime - connReqTime.getTime()) / (1000 * 3600 * 24);
-        if (daysPassed > 7) {
-          const invKey = accountId + "_" + providerId;
-          const invInfo = invMap[invKey];
-          let invId = invInfo ? invInfo.invId : null;
-          let invRowIndex = invInfo ? invInfo.rowIndex : -1;
-          
-          if (!invId) {
-             invId = findInvitationId(creds, accountId, providerId);
-             if (invId && invSheet) {
-                invSheet.appendRow([accountId, providerId, invId, "Sent", new Date()]);
-             }
-          }
-          
-          if (invId) {
-            requests.push({
-              url: `${creds.baseUrl}/users/invite/sent/${invId}?account_id=${accountId}`,
-              method: "DELETE",
-              headers: { "X-API-KEY": creds.apiKey, "Accept": "application/json" },
-              muteHttpExceptions: true
-            });
-            actions.push({ type: 'uninvite', dbIndex: i, invRowIndex: invRowIndex, providerId });
-          } else {
-             // Invitation ID not found, just mark failed in DB so it doesn't keep checking
-             row[12] = "Failed";
-             row[25] = `[${now.toISOString()}] 7 days passed, could not uninvite (missing ID).`;
-             dbUpdated = true;
-          }
+
+      const lastDbRow = dbSheet.getLastRow();
+      if (lastDbRow < 2) break;
+  
+      const lastDbCol = Math.max(26, dbSheet.getLastColumn());
+      const dbRange = dbSheet.getRange(2, 1, lastDbRow - 1, lastDbCol);
+      const dbData = dbRange.getValues();
+
+      const campaignsData = campaignsSheet.getRange(2, 1, lastCampRow - 1, campaignsSheet.getLastColumn()).getValues();
+
+      let invData = [];
+      let invRange = null;
+      if (invSheet) {
+        const lastInvRow = invSheet.getLastRow();
+        if (lastInvRow >= 2) {
+          invRange = invSheet.getRange(2, 1, lastInvRow - 1, invSheet.getLastColumn());
+          invData = invRange.getValues();
         }
       }
-    }
-    
-    // Messaging Logic
-    if (connAccepted === true) {
-       const msg1Status = row[16];
-       const msg2Status = row[18];
-       const msg3Status = row[20];
-       
-       const firstName = String(row[3] || "").trim();
-       
-       if (msg1Status === "Pending") {
-          let msg1Text = campaign[5]; // Column F
-          if (msg1Text && String(msg1Text).trim() !== "") {
-             msg1Text = String(msg1Text).replace(/\$name/g, firstName);
-             requests.push({
-               url: `${creds.baseUrl}/chats`,
-               method: "POST",
-               headers: { "X-API-KEY": creds.apiKey, "Accept": "application/json", "Content-Type": "application/json" },
-               payload: JSON.stringify({ account_id: accountId, text: msg1Text, attendees_ids: [providerId] }),
-               muteHttpExceptions: true
-             });
-             actions.push({ type: 'msg1', dbIndex: i });
-           } else {
-            row[16] = "Skipped";
-            dbSheet.getRange(i + 2, 17).setValue("Skipped");
-          }
-       } else if (msg1Status === "Sent" && msg2Status === "Pending") {
-          const msg1Time = row[17] ? new Date(row[17]) : null;
-          const delay2Hours = parseFloat(campaign[8]) || 0; // Column I
-          
-          if (msg1Time) {
-            const hoursPassed = (nowTime - msg1Time.getTime()) / (1000 * 3600);
-            if (hoursPassed >= delay2Hours) {
-               let msg2Text = campaign[6]; // Column G
-               if (msg2Text && String(msg2Text).trim() !== "") {
-                  msg2Text = String(msg2Text).replace(/\$name/g, firstName);
-                  requests.push({
-                    url: `${creds.baseUrl}/chats`,
-                    method: "POST",
-                    headers: { "X-API-KEY": creds.apiKey, "Accept": "application/json", "Content-Type": "application/json" },
-                    payload: JSON.stringify({ account_id: accountId, text: msg2Text, attendees_ids: [providerId] }),
-                    muteHttpExceptions: true
-                  });
-                  actions.push({ type: 'msg2', dbIndex: i });
-               } else {
-                  row[18] = "Skipped";
-                  dbSheet.getRange(i + 2, 19).setValue("Skipped");
-               }
-            }
-          }
-       } else if (msg2Status === "Sent" && msg3Status === "Pending") {
-          const msg2Time = row[19] ? new Date(row[19]) : null;
-          const delay3Hours = parseFloat(campaign[9]) || 0; // Column J
-          
-          if (msg2Time) {
-            const hoursPassed = (nowTime - msg2Time.getTime()) / (1000 * 3600);
-            if (hoursPassed >= delay3Hours) {
-               let msg3Text = campaign[7]; // Column H
-               if (msg3Text && String(msg3Text).trim() !== "") {
-                  msg3Text = String(msg3Text).replace(/\$name/g, firstName);
-                  requests.push({
-                    url: `${creds.baseUrl}/chats`,
-                    method: "POST",
-                    headers: { "X-API-KEY": creds.apiKey, "Accept": "application/json", "Content-Type": "application/json" },
-                    payload: JSON.stringify({ account_id: accountId, text: msg3Text, attendees_ids: [providerId] }),
-                    muteHttpExceptions: true
-                  });
-                  actions.push({ type: 'msg3', dbIndex: i });
-               } else {
-                 row[20] = "Skipped";
-                 dbSheet.getRange(i + 2, 21).setValue("Skipped");
-               }
-            }
-          }
-       }
-    }
-  }
+      
+      const now = new Date();
+      const nowTime = now.getTime();
+      
+      // O(1) Lookup Maps for Maximum Efficiency
+      const campaignMap = {};
+      for (let i = 0; i < campaignsData.length; i++) {
+        campaignMap[campaignsData[i][0]] = campaignsData[i];
+      }
+      
+      const invMap = {};
+      for (let j = 0; j < invData.length; j++) {
+        if (invData[j][3] === "Sent") {
+          const key = invData[j][0] + "_" + invData[j][1]; // accountId_providerId
+          invMap[key] = {
+            invId: invData[j][2],
+            rowIndex: j
+          };
+        }
+      }
+
+      const requests = [];
+      const actions = [];
+      let dbUpdated = false;
   
-  if (requests.length === 0) {
-    return;
-  }
+      for (let i = 0; i < dbData.length; i++) {
+        const row = dbData[i];
+        
+        // Check if reply received, skip processing for messaging/uninviting
+        let replyTextCheck = row[23];
+        let replyTimeCheck = row[24];
+        
+        const hasReplyBoxChecked = (row[22] === true || String(row[22]).toUpperCase() === "TRUE");
+        
+        let hasReplyText = false;
+        if (replyTextCheck !== null && replyTextCheck !== undefined && replyTextCheck !== "") {
+          let strText = String(replyTextCheck).trim().toUpperCase();
+          if (strText !== "" && strText !== "FALSE" && strText !== "NULL" && strText !== "UNDEFINED") {
+            hasReplyText = true;
+          }
+        }
+
+        let hasReplyTime = false;
+        if (replyTimeCheck !== null && replyTimeCheck !== undefined && replyTimeCheck !== "") {
+          let strTime = String(replyTimeCheck).trim().toUpperCase();
+          if (strTime !== "" && strTime !== "FALSE" && strTime !== "NULL" && strTime !== "UNDEFINED") {
+            hasReplyTime = true;
+          }
+        }
+        
+        if (hasReplyBoxChecked || hasReplyText || hasReplyTime) {
+          continue; // Reply received
+        }
+        
+        const campId = row[0];
+        const accountId = row[10];
+        const providerId = row[11];
+        const connReqStatus = row[12];
+        const connReqTime = row[13] ? new Date(row[13]) : null;
+        const connAccepted = row[14];
+        
+        // Find campaign details directly using Hash Map
+        const campaign = campaignMap[campId];
+        if (!campaign) continue;
+        
+        // Case 1: Uninvite after 7 days
+        if (connReqStatus === "Sent" && connAccepted !== true) {
+          if (connReqTime) {
+            const daysPassed = (nowTime - connReqTime.getTime()) / (1000 * 3600 * 24);
+            if (daysPassed > 7) {
+              const invKey = accountId + "_" + providerId;
+              const invInfo = invMap[invKey];
+              let invId = invInfo ? invInfo.invId : null;
+              let invRowIndex = invInfo ? invInfo.rowIndex : -1;
+              
+              if (!invId) {
+                 invId = findInvitationId(creds, accountId, providerId);
+                 if (invId && invSheet) {
+                    invSheet.appendRow([accountId, providerId, invId, "Sent", new Date()]);
+                 }
+              }
+              
+              if (invId) {
+                requests.push({
+                  url: `${creds.baseUrl}/users/invite/sent/${invId}?account_id=${accountId}`,
+                  method: "DELETE",
+                  headers: { "X-API-KEY": creds.apiKey, "Accept": "application/json" },
+                  muteHttpExceptions: true
+                });
+                actions.push({ type: 'uninvite', dbIndex: i, invRowIndex: invRowIndex, providerId });
+              } else {
+                 // Invitation ID not found, just mark failed in DB so it doesn't keep checking
+                 row[12] = "Failed";
+                 row[25] = `[${now.toISOString()}] 7 days passed, could not uninvite (missing ID).`;
+                 dbUpdated = true;
+              }
+            }
+          }
+        }
+        
+        // Messaging Logic
+        if (connAccepted === true) {
+           const msg1Status = row[16];
+           const msg2Status = row[18];
+           const msg3Status = row[20];
+           
+           const firstName = String(row[3] || "").trim();
+           
+           if (msg1Status === "Pending") {
+              let msg1Text = campaign[5]; // Column F
+              if (msg1Text && String(msg1Text).trim() !== "") {
+                 msg1Text = String(msg1Text).replace(/\$name/g, firstName);
+                 requests.push({
+                   url: `${creds.baseUrl}/chats`,
+                   method: "POST",
+                   headers: { "X-API-KEY": creds.apiKey, "Accept": "application/json", "Content-Type": "application/json" },
+                   payload: JSON.stringify({ account_id: accountId, text: msg1Text, attendees_ids: [providerId] }),
+                   muteHttpExceptions: true
+                 });
+                 actions.push({ type: 'msg1', dbIndex: i });
+               } else {
+                row[16] = "Skipped";
+                dbSheet.getRange(i + 2, 17).setValue("Skipped");
+              }
+           } else if (msg1Status === "Sent" && msg2Status === "Pending") {
+              const msg1Time = row[17] ? new Date(row[17]) : null;
+              const delay2Hours = parseFloat(campaign[8]) || 0; // Column I
+              
+              if (msg1Time) {
+                const hoursPassed = (nowTime - msg1Time.getTime()) / (1000 * 3600);
+                if (hoursPassed >= delay2Hours) {
+                   let msg2Text = campaign[6]; // Column G
+                   if (msg2Text && String(msg2Text).trim() !== "") {
+                      msg2Text = String(msg2Text).replace(/\$name/g, firstName);
+                      requests.push({
+                        url: `${creds.baseUrl}/chats`,
+                        method: "POST",
+                        headers: { "X-API-KEY": creds.apiKey, "Accept": "application/json", "Content-Type": "application/json" },
+                        payload: JSON.stringify({ account_id: accountId, text: msg2Text, attendees_ids: [providerId] }),
+                        muteHttpExceptions: true
+                      });
+                      actions.push({ type: 'msg2', dbIndex: i });
+                   } else {
+                      row[18] = "Skipped";
+                      dbSheet.getRange(i + 2, 19).setValue("Skipped");
+                   }
+                }
+              }
+           } else if (msg2Status === "Sent" && msg3Status === "Pending") {
+              const msg2Time = row[19] ? new Date(row[19]) : null;
+              const delay3Hours = parseFloat(campaign[9]) || 0; // Column J
+              
+              if (msg2Time) {
+                const hoursPassed = (nowTime - msg2Time.getTime()) / (1000 * 3600);
+                if (hoursPassed >= delay3Hours) {
+                   let msg3Text = campaign[7]; // Column H
+                   if (msg3Text && String(msg3Text).trim() !== "") {
+                      msg3Text = String(msg3Text).replace(/\$name/g, firstName);
+                      requests.push({
+                        url: `${creds.baseUrl}/chats`,
+                        method: "POST",
+                        headers: { "X-API-KEY": creds.apiKey, "Accept": "application/json", "Content-Type": "application/json" },
+                        payload: JSON.stringify({ account_id: accountId, text: msg3Text, attendees_ids: [providerId] }),
+                        muteHttpExceptions: true
+                      });
+                      actions.push({ type: 'msg3', dbIndex: i });
+                   } else {
+                     row[20] = "Skipped";
+                     dbSheet.getRange(i + 2, 21).setValue("Skipped");
+                   }
+                }
+              }
+           }
+        }
+      }
+  
+    if (requests.length === 0) {
+      if (dbUpdated) {
+        dbSheet.getRange(2, 1, dbData.length, dbData[0].length).setValues(dbData);
+      }
+      executionLoops++;
+      if (executionLoops < maxLoops) {
+         Utilities.sleep(15000); // 15 second delay before restarting loop
+         continue; 
+      } else {
+         break;
+      }
+    }
   
   // Process API requests sequentially to simulate human behavior and avoid flagging
   let invUpdated = false;
   const startTime = Date.now();
   
-  for (let k = 0; k < requests.length; k++) {
-     if (Date.now() - startTime > 240000) { // 4 minutes safety
-       Logger.log("Nearing execution limit in worker. Stopping early. Will resume next run.");
-       break;
-     }
+    for (let k = 0; k < requests.length; k++) {
+       if (Date.now() - startTime > 180000) { // 3 minutes inner safety
+         Logger.log("Nearing execution limit in worker loop. Stopping early.");
+         break;
+       }
 
      const req = requests[k];
      const action = actions[k];
@@ -305,8 +325,16 @@ function processCampaignsWorker() {
   }
   SpreadsheetApp.flush();
   
-  // Sync all global stats
-  updateGlobalStats();
+    // Sync all global stats after processing requests in this loop
+    updateGlobalStats();
+    
+    executionLoops++;
+    if (executionLoops < maxLoops) {
+      // Pause briefly before running the next cycle within the same execution
+      Utilities.sleep(15000); 
+    }
+  } // End of while loop
+  
   } finally {
     lock.releaseLock();
   }
