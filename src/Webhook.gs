@@ -62,7 +62,7 @@ function doPost(e) {
       const isSelf = data.account_info && data.account_info.user_id === providerId;
       
       if (!isSelf && providerId) {
-        for (let i = 0; i < dbData.length; i++) {
+        for (let i = dbData.length - 1; i >= 0; i--) {
           if (dbData[i][10] === accountId && dbData[i][11] === providerId) {
             // Found the matching prospect
             // Column 23 = reply_received, Column 24 = reply_text, Column 25 = reply_time
@@ -82,7 +82,7 @@ function doPost(e) {
       const providerId = data.user_provider_id;
       
       if (providerId) {
-        for (let i = 0; i < dbData.length; i++) {
+        for (let i = dbData.length - 1; i >= 0; i--) {
           if (dbData[i][10] === accountId && dbData[i][11] === providerId) {
             // Found the matching prospect
             // Column 13 = connection_request_status, Column 15 = connection_accepted, Column 16 = connection_accepted_time

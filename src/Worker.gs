@@ -40,6 +40,8 @@ function processCampaignsWorker() {
       const dbRange = dbSheet.getRange(2, 1, lastDbRow - 1, lastDbCol);
       const dbData = dbRange.getValues();
 
+      const lastCampRow = campaignsSheet.getLastRow();
+      if (lastCampRow < 2) break;
       const campaignsData = campaignsSheet.getRange(2, 1, lastCampRow - 1, campaignsSheet.getLastColumn()).getValues();
 
       let invData = [];
@@ -158,6 +160,7 @@ function processCampaignsWorker() {
            const msg3Status = row[20];
            
            const firstName = String(row[3] || "").trim();
+           const acceptedTime = row[15] ? new Date(row[15]) : null;
            
            if (msg1Status === "Pending") {
               let msg1Text = campaign[5]; // Column F
@@ -171,12 +174,13 @@ function processCampaignsWorker() {
                    muteHttpExceptions: true
                  });
                  actions.push({ type: 'msg1', dbIndex: i });
-               } else {
-                row[16] = "Skipped";
-                dbSheet.getRange(i + 2, 17).setValue("Skipped");
+              } else {
+                 row[16] = "Skipped";
+                 row[17] = new Date();
+                 dbSheet.getRange(i + 2, 17, 1, 2).setValues([["Skipped", row[17]]]);
               }
-           } else if (msg1Status === "Sent" && msg2Status === "Pending") {
-              const msg1Time = row[17] ? new Date(row[17]) : null;
+           } else if ((msg1Status === "Sent" || msg1Status === "Skipped") && msg2Status === "Pending") {
+              const msg1Time = row[17] ? new Date(row[17]) : acceptedTime;
               const delay2Hours = parseFloat(campaign[8]) || 0; // Column I
               
               if (msg1Time) {
@@ -195,12 +199,13 @@ function processCampaignsWorker() {
                       actions.push({ type: 'msg2', dbIndex: i });
                    } else {
                       row[18] = "Skipped";
-                      dbSheet.getRange(i + 2, 19).setValue("Skipped");
+                      row[19] = new Date();
+                      dbSheet.getRange(i + 2, 19, 1, 2).setValues([["Skipped", row[19]]]);
                    }
                 }
               }
-           } else if (msg2Status === "Sent" && msg3Status === "Pending") {
-              const msg2Time = row[19] ? new Date(row[19]) : null;
+           } else if ((msg2Status === "Sent" || msg2Status === "Skipped") && msg3Status === "Pending") {
+              const msg2Time = row[19] ? new Date(row[19]) : (row[17] ? new Date(row[17]) : acceptedTime);
               const delay3Hours = parseFloat(campaign[9]) || 0; // Column J
               
               if (msg2Time) {
@@ -218,8 +223,9 @@ function processCampaignsWorker() {
                       });
                       actions.push({ type: 'msg3', dbIndex: i });
                    } else {
-                     row[20] = "Skipped";
-                     dbSheet.getRange(i + 2, 21).setValue("Skipped");
+                      row[20] = "Skipped";
+                      row[21] = new Date();
+                      dbSheet.getRange(i + 2, 21, 1, 2).setValues([["Skipped", row[21]]]);
                    }
                 }
               }
